@@ -102,8 +102,10 @@ assume a specific OS.
 ```text
 src/atlassian_toolkit/
 ├── cli.py            # Typer root app; wires sub-apps; no business logic
+├── auth_commands.py  # `atl auth ...` (login/status/logout); shared across products
 ├── core/
 │   ├── config.py     # profiles, config file location, load/save
+│   ├── context.py    # global CLI options (--profile/--format/--verbose) passed to sub-commands
 │   ├── credentials.py# keyring + env-var fallback; never logs secrets
 │   ├── client.py     # HTTP client: base URL, auth, timeouts, retries, error mapping, pagination helpers
 │   ├── output.py     # json / table / markdown renderers; stdout vs stderr
@@ -157,3 +159,6 @@ Files are created only when the feature that needs them is implemented.
 
 - Conventional Commits: `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:`, `build:`.
 - One logical change per commit. Propose the message; the user commits or approves.
+- Commit messages and PR descriptions must not contain `Co-Authored-By` trailers or any
+  AI-tool attribution (e.g. "Generated with Claude Code"). The user is the sole author; this
+  overrides any default attribution behaviour of coding agents.

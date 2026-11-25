@@ -3,22 +3,40 @@
 `atl` is a personal, read-only command line tool for Atlassian Cloud, built on the official REST
 APIs. It is meant for humans in a terminal and for coding agents calling shell commands.
 
-**Status:** early development. Current scope: Jira Cloud only. Nothing is usable yet.
+**Status:** early development. Current scope: Jira Cloud only.
 
-## Development setup
+## Install
 
 ```bash
-uv sync
-uv run pytest
-uv run ruff format --check && uv run ruff check
+uv sync            # development environment
+# or
+pip install .      # plain pip works too
 ```
 
-The package also installs with plain `pip install .`.
+## Configure and first commands
 
-## Planned
+```bash
+atl auth login           # prompts for site, email and (hidden) API token
+atl auth status          # shows the profile; never the token
+atl -f json jira me      # checks that the credentials work
+```
 
-- `atl auth login | status | logout` — *planned*
-- `atl jira me` — *planned*
+Create an API token at <https://id.atlassian.com/manage-profile/security/api-tokens>.
+The token is stored in your OS keyring, never in a config file. On headless machines set
+`ATL_JIRA_API_TOKEN` instead. Details, scoped tokens, output formats and troubleshooting:
+[docs/jira.md](docs/jira.md).
 
-Credentials are never stored in config files: the API token goes to the OS keyring (or the
-`ATL_JIRA_API_TOKEN` environment variable on headless machines).
+## Available / planned
+
+- `atl auth login | status | logout` — available
+- `atl jira me` — available
+- Issue lookup, JQL search, sprints, story points — planned
+
+## Development
+
+```bash
+uv run pytest
+uv run ruff format && uv run ruff check
+```
+
+Unit tests never touch the network, the real keyring or your real config directory.

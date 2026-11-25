@@ -79,6 +79,29 @@ becomes `default_profile`. `--site` may be a bare host or a URL (it is normalise
 is stored first; if that fails nothing is written to the config. Login does **not** call Jira;
 use `atl jira me` to verify.
 
+#### Windows PowerShell: if pasting into the token prompt fails
+
+Pass the token from the clipboard instead. The order matters: copying the command *after* the
+token would overwrite the token in the clipboard. (Not yet tested on Windows.)
+
+1. Paste this into PowerShell and edit the site and email. **Do not press Enter yet.**
+
+   ```powershell
+   Get-Clipboard | uv run atl auth login --site example.atlassian.net --email alice@example.com --token-stdin
+   ```
+
+2. Now copy the API token in the browser, go back to PowerShell and press Enter.
+3. Overwrite the clipboard, then check the login:
+
+   ```powershell
+   Set-Clipboard -Value " "
+   uv run atl auth status
+   uv run atl -f json jira me
+   ```
+
+If Windows clipboard history (Win+V) is enabled, delete the token entry there too. Atlassian
+shows a token only once: if you no longer have it, revoke it and create a new one.
+
 ### `atl auth status` *(available)*
 
 Shows the selected profile and where its token comes from (`keyring`, `environment` or `null`).
@@ -128,6 +151,7 @@ story points (custom field discovered per site), ADF → Markdown conversion. *(
 | ------- | ------------------ |
 | `No profile selected` (exit 3) | Run `atl auth login`, or pass `--profile` / set `ATL_PROFILE` |
 | `No usable OS keyring` (exit 3) | Headless machine: export `ATL_JIRA_API_TOKEN` instead |
+| Cannot paste the token in Windows PowerShell | See "Windows PowerShell: if pasting into the token prompt fails" under `atl auth login` |
 | HTTP 401 (exit 4) | Token expired/revoked, or email does not belong to the token; create a new token and log in again |
 | HTTP 401 with a scoped token | Wrong `cloud_id`, or the token lacks a scope (`read:jira-user` for `me`) |
 | HTTP 403 (exit 4) | The account/token lacks permission for that resource |

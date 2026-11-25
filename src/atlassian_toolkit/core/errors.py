@@ -1,4 +1,8 @@
-"""Exception hierarchy. Each exception carries the process exit code the CLI should use."""
+"""Exception hierarchy. Each exception carries the process exit code the CLI should use.
+
+The root command group (``cli.py``) prints ``Error: <message>`` to stderr and exits with
+``exit_code``.
+"""
 
 from __future__ import annotations
 

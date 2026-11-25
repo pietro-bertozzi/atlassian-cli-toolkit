@@ -38,13 +38,19 @@ def get_jira_token(profile: str) -> str:
     )
 
 
+def jira_token_source(profile: str) -> str | None:
+    """Return where the token for ``profile`` comes from: ``environment``, ``keyring`` or None.
+
+    Never exposes the token itself.
+    """
+    if os.environ.get(JIRA_TOKEN_ENV_VAR):
+        return "environment"
+    return "keyring" if _read_keyring(profile) else None
+
+
 def has_jira_token(profile: str) -> bool:
     """Return whether a token is available for ``profile`` (without exposing it)."""
-    try:
-        get_jira_token(profile)
-    except ConfigError:
-        return False
-    return True
+    return jira_token_source(profile) is not None
 
 
 def save_jira_token(profile: str, token: str) -> None:

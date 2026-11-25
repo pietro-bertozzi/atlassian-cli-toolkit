@@ -20,6 +20,7 @@ import os
 import tempfile
 import tomllib
 from dataclasses import dataclass, field
+from enum import StrEnum
 from pathlib import Path
 from typing import Any
 
@@ -31,7 +32,17 @@ from atlassian_toolkit.core.errors import ConfigError
 APP_NAME = "atl"
 CONFIG_FILENAME = "config.toml"
 PROFILE_ENV_VAR = "ATL_PROFILE"
-MODES = ("classic", "scoped")
+CONFIG_DIR_ENV_VAR = "ATL_CONFIG_DIR"
+
+
+class AuthMode(StrEnum):
+    """How the API token is used: classic (site URL) or scoped (api.atlassian.com gateway)."""
+
+    CLASSIC = "classic"
+    SCOPED = "scoped"
+
+
+MODES = tuple(mode.value for mode in AuthMode)
 
 
 @dataclass(frozen=True)
@@ -40,7 +51,7 @@ class JiraProfile:
 
     site: str
     email: str
-    mode: str = "classic"
+    mode: str = AuthMode.CLASSIC
     cloud_id: str | None = None
 
     def __post_init__(self) -> None:
@@ -48,7 +59,7 @@ class JiraProfile:
             raise ConfigError(f"Invalid auth mode {self.mode!r}; expected one of {MODES}.")
         if not self.site or not self.email:
             raise ConfigError("A Jira profile needs both 'site' and 'email'.")
-        if self.mode == "scoped" and not self.cloud_id:
+        if self.mode == AuthMode.SCOPED and not self.cloud_id:
             raise ConfigError("Auth mode 'scoped' requires 'cloud_id' in the profile.")
 
 
@@ -61,8 +72,19 @@ class Config:
 
 
 def default_config_path() -> Path:
-    """Return the OS-standard location of the config file."""
-    return Path(typer.get_app_dir(APP_NAME)) / CONFIG_FILENAME
+    """Return the config file location: ``$ATL_CONFIG_DIR`` or the OS-standard app directory."""
+    override = os.environ.get(CONFIG_DIR_ENV_VAR)
+    directory = Path(override) if override else Path(typer.get_app_dir(APP_NAME))
+    return directory / CONFIG_FILENAME
+
+
+def normalize_site(site: str) -> str:
+    """Reduce ``https://Example.atlassian.net/`` (or a bare host) to ``example.atlassian.net``."""
+    host = site.strip()
+    for prefix in ("https://", "http://"):
+        if host.lower().startswith(prefix):
+            host = host[len(prefix) :]
+    return host.split("/", 1)[0].lower()
 
 
 def load_config(path: Path | None = None) -> Config:

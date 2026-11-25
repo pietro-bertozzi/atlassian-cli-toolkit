@@ -5,6 +5,9 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from typing import Any
+from urllib.parse import quote
+
+from atlassian_toolkit.jira.adf import adf_to_markdown
 
 
 @dataclass(frozen=True)
@@ -37,3 +40,76 @@ class CurrentUser:
     def to_record(self) -> dict[str, Any]:
         """Return the record rendered by the output layer."""
         return asdict(self)
+
+
+@dataclass(frozen=True)
+class Issue:
+    """One Jira issue (``GET /rest/api/3/issue/{issueIdOrKey}``), with core fields only.
+
+    ``description`` is Markdown converted from Jira's ADF rich text. Optional fields
+    (priority, parent, assignee, ...) are None when unset or hidden from the user.
+    """
+
+    key: str
+    id: str
+    url: str
+    summary: str
+    issue_type: str | None
+    status: str | None
+    status_category: str | None
+    priority: str | None
+    project_key: str | None
+    parent_key: str | None
+    assignee: str | None
+    reporter: str | None
+    labels: list[str]
+    resolution: str | None
+    created: str | None
+    updated: str | None
+    due_date: str | None
+    description: str | None
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any], site: str) -> Issue:
+        """Build from the raw ``IssueBean``; ``site`` (e.g. example.atlassian.net) makes ``url``."""
+        fields = _mapping(data.get("fields"))
+        key = _str(data.get("key")) or ""
+        status = _mapping(fields.get("status"))
+        labels = fields.get("labels")
+        return cls(
+            key=key,
+            id=_str(data.get("id")) or "",
+            url=f"https://{site}/browse/{quote(key, safe='')}",
+            summary=_str(fields.get("summary")) or "",
+            issue_type=_nested(fields, "issuetype", "name"),
+            status=_nested(fields, "status", "name"),
+            status_category=_nested(status, "statusCategory", "name"),
+            priority=_nested(fields, "priority", "name"),
+            project_key=_nested(fields, "project", "key"),
+            parent_key=_nested(fields, "parent", "key"),
+            assignee=_nested(fields, "assignee", "displayName"),
+            reporter=_nested(fields, "reporter", "displayName"),
+            labels=[x for x in labels if isinstance(x, str)] if isinstance(labels, list) else [],
+            resolution=_nested(fields, "resolution", "name"),
+            created=_str(fields.get("created")),
+            updated=_str(fields.get("updated")),
+            due_date=_str(fields.get("duedate")),
+            description=adf_to_markdown(fields.get("description")) or None,
+        )
+
+    def to_record(self) -> dict[str, Any]:
+        """Return the record rendered by the output layer."""
+        return asdict(self)
+
+
+def _mapping(value: Any) -> Mapping[str, Any]:
+    return value if isinstance(value, Mapping) else {}
+
+
+def _str(value: Any) -> str | None:
+    return value if isinstance(value, str) and value else None
+
+
+def _nested(parent: Mapping[str, Any], name: str, attr: str) -> str | None:
+    """Return ``parent[name][attr]`` as a string, or None when missing/null/not a string."""
+    return _str(_mapping(parent.get(name)).get(attr))

@@ -187,3 +187,93 @@ def test_jira_me_uses_env_token_over_keyring(
 
 def test_config_dir_override_is_used(tmp_path: Path, logged_in: MemoryKeyring) -> None:
     assert default_config_path() == tmp_path / "config" / "config.toml"
+
+
+ISSUE_BODY = {
+    "id": "10001",
+    "key": "DEMO-123",
+    "fields": {
+        "summary": "Fix the login page",
+        "issuetype": {"name": "Bug"},
+        "status": {"name": "To Do", "statusCategory": {"name": "To Do"}},
+        "project": {"key": "DEMO"},
+        "labels": [],
+        "description": {
+            "type": "doc",
+            "version": 1,
+            "content": [
+                {
+                    "type": "heading",
+                    "attrs": {"level": 2},
+                    "content": [{"type": "text", "text": "Goal"}],
+                },
+                {"type": "paragraph", "content": [{"type": "text", "text": "Make | it work"}]},
+            ],
+        },
+    },
+}
+
+
+def test_issue_get_requests_explicit_fields(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    seen = mock_jira(httpx.Response(200, json=ISSUE_BODY))
+    result = runner.invoke(app, ["-f", "json", "jira", "issue", "get", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    request = seen[0]
+    assert request.url.path == "/rest/api/3/issue/DEMO-123"
+    fields = request.url.params["fields"].split(",")
+    assert "description" in fields
+    assert "*all" not in fields
+    assert not any(f.startswith("customfield_") for f in fields)
+
+
+def test_issue_get_json_output(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    mock_jira(httpx.Response(200, json=ISSUE_BODY))
+    result = runner.invoke(app, ["-f", "json", "jira", "issue", "get", "DEMO-123"])
+    data = json.loads(result.stdout)
+    assert list(data) == [
+        "key", "id", "url", "summary", "issue_type", "status", "status_category", "priority",
+        "project_key", "parent_key", "assignee", "reporter", "labels", "resolution", "created",
+        "updated", "due_date", "description",
+    ]  # fmt: skip
+    assert data["url"] == "https://example.atlassian.net/browse/DEMO-123"
+    assert data["description"] == "## Goal\n\nMake | it work"
+
+
+def test_issue_get_encodes_the_key_in_the_path(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    seen = mock_jira(httpx.Response(200, json=ISSUE_BODY))
+    runner.invoke(app, ["-f", "json", "jira", "issue", "get", "../myself?x=1"])
+    assert seen[0].url.raw_path.startswith(b"/rest/api/3/issue/..%2Fmyself%3Fx%3D1?")
+
+
+def test_issue_get_markdown_document(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    mock_jira(httpx.Response(200, json=ISSUE_BODY))
+    result = runner.invoke(app, ["-f", "markdown", "jira", "issue", "get", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert out.startswith("# DEMO-123: Fix the login page\n\n- **key**: DEMO-123\n")
+    assert "- **description**" not in out
+    assert out.rstrip().endswith("## Description\n\n## Goal\n\nMake | it work")
+
+
+def test_issue_get_404_exits_5(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    body = {"errorMessages": ["Issue does not exist or you do not have permission to see it."]}
+    mock_jira(httpx.Response(404, json=body))
+    result = runner.invoke(app, ["jira", "issue", "get", "DEMO-999"])
+    assert result.exit_code == 5
+    assert "does not exist" in result.stderr
+    assert result.stdout == ""
+
+
+def test_issue_get_401_exits_4(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    mock_jira(httpx.Response(401))
+    assert runner.invoke(app, ["jira", "issue", "get", "DEMO-1"]).exit_code == 4
+
+
+def test_issue_get_url_uses_site_in_scoped_mode(memory_keyring: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    login = [*LOGIN, "--mode", "scoped", "--cloud-id", "11111111-2222-3333-4444-555555555555"]
+    assert runner.invoke(app, [*login, "--token-stdin"], input=TOKEN).exit_code == 0
+    seen = mock_jira(httpx.Response(200, json=ISSUE_BODY))
+    result = runner.invoke(app, ["-f", "json", "jira", "issue", "get", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    assert seen[0].url.host == "api.atlassian.com"
+    assert json.loads(result.stdout)["url"] == "https://example.atlassian.net/browse/DEMO-123"

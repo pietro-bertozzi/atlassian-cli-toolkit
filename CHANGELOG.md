@@ -7,6 +7,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `atl jira issue get <KEY>`: show one issue's core fields, with the description converted
+  from Atlassian Document Format (ADF) to Markdown. `-f markdown` prints a Markdown document.
 - `atl auth login | status | logout`: profile and API token management (token stored in the OS
   keyring; `ATL_JIRA_API_TOKEN` overrides it for headless/CI use).
 - `atl jira me`: show the user the API token authenticates as.

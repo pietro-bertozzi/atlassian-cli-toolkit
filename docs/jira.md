@@ -130,10 +130,81 @@ work.
 atl -f json jira me
 ```
 
+### `atl jira issue get <KEY>` *(available)*
+
+Shows one issue: its core fields and its description converted to Markdown. Use it to read a
+ticket from the terminal or to hand a ticket to a coding agent as clean text.
+
+**Concepts**
+
+- **Issue**: a unit of work in Jira (a bug, a story, a task...). It belongs to one **project**.
+- **Key vs id**: the key (`DEMO-123`) is the project key plus a number; it is what people use
+  and what appears in URLs. The id (`10001`) is Jira's internal number. Both work as argument.
+  If an issue was moved to another project its key changes; Jira still finds it by the old key
+  and returns the **current** key, so `key` in the output can differ from what you typed.
+- **Issue type**: Bug, Story, Task, Epic, Sub-task... Each site/project defines its own set.
+- **Status vs status category**: the status is the workflow step and its name is chosen by
+  each team (`In Review`, `QA`, `Waiting for customer`...). Every status belongs to one of
+  three fixed **categories**: `To Do`, `In Progress`, `Done`. Scripts that must work across
+  projects should look at `status_category`, not `status`.
+- **Parent**: the epic of a story, or the story/task of a sub-task.
+- **Description and ADF**: rich text in Jira REST API v3 is returned as
+  [Atlassian Document Format](https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/),
+  a JSON tree of nodes (paragraphs, lists, tables, mentions...). The CLI converts it to
+  GitHub-flavoured Markdown.
+
+**Details**
+
+- **Jira web UI**: open `https://<site>/browse/DEMO-123` (the `url` key in the output).
+- **Endpoint**: `GET /rest/api/3/issue/{issueIdOrKey}` with an explicit `fields` list
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-get>).
+  Only the fields below are requested; custom fields are not.
+- **Permissions**: *Browse projects* on the issue's project, and the issue security level if
+  the project uses issue security. **Scope** (scoped tokens): `read:jira-work`.
+- **JSON output** (stable keys): `key`, `id`, `url`, `summary`, `issue_type`, `status`,
+  `status_category`, `priority`, `project_key`, `parent_key`, `assignee`, `reporter`
+  (display names), `labels` (list), `resolution`, `created`, `updated` (ISO 8601 as returned
+  by Jira), `due_date` (`YYYY-MM-DD`), `description` (Markdown). Optional values are `null`
+  when unset.
+- **Markdown output** (`-f markdown`) is a document: `# KEY: summary`, a metadata list, then a
+  `## Description` section.
+
+```bash
+atl -f json jira issue get DEMO-123
+atl -f markdown jira issue get DEMO-123 > DEMO-123.md
+```
+
+**ADF conversion**
+
+| ADF | Markdown |
+| --- | -------- |
+| paragraph, heading (levels 1–6), bullet/ordered list (start number kept), blockquote, rule | the same construct |
+| code block | fenced block with language |
+| bold, italic, strikethrough, inline code, link | `**`, `*`, `~~`, backticks, `[text](url)` |
+| panel (info, note, warning, success, error) | blockquote starting with `**Info:**` etc. |
+| table | GFM table; cells flattened to one line; empty header row if the table has none |
+| expand | bold title followed by the content |
+| mention, emoji, status lozenge, date, smart link | `@Name`, the emoji, `[STATUS]`, `YYYY-MM-DD`, `<url>` |
+| images and attachments | `[attachment]` placeholder |
+| underline, text colour, sub/superscript | dropped (text kept) |
+| any other node (e.g. task lists) | its text is kept, its structure is lost |
+
+**Limitations**
+
+- Comments, attachments, links between issues, worklogs and custom fields (story points,
+  sprint...) are not shown yet.
+- Attachments are not downloaded; table cell merges (colspan/rowspan) are ignored.
+- Markdown characters typed as plain text in Jira (e.g. `*word*`) are not escaped, so they
+  render as Markdown formatting.
+- ADF `date` nodes: the docs do not state the timestamp unit. Values above 10^11 are read as
+  milliseconds, others as seconds; dates are shown in UTC.
+- HTTP 404 means *either* the issue does not exist *or* you are not allowed to see it; Jira
+  does not say which.
+
 ### Planned
 
-Issue lookup and JQL search (`/rest/api/3/search/jql`, token pagination), sprints/boards,
-story points (custom field discovered per site), ADF → Markdown conversion. *(planned)*
+Issue comments, JQL search (`/rest/api/3/search/jql`, token pagination), sprints/boards,
+story points (custom field discovered per site). *(planned)*
 
 ## 5. HTTP behaviour *(available)*
 
@@ -155,4 +226,6 @@ story points (custom field discovered per site), ADF → Markdown conversion. *(
 | HTTP 401 (exit 4) | Token expired/revoked, or email does not belong to the token; create a new token and log in again |
 | HTTP 401 with a scoped token | Wrong `cloud_id`, or the token lacks a scope (`read:jira-user` for `me`) |
 | HTTP 403 (exit 4) | The account/token lacks permission for that resource |
+| `issue get` gives HTTP 404 (exit 5) | Wrong key, or you lack *Browse projects* / issue security permission for it. Check by opening `https://<site>/browse/<KEY>` in the browser with the same account |
+| `issue get` fails with a scoped token | The token needs the `read:jira-work` scope |
 | Unexpected account is used | `ATL_JIRA_API_TOKEN` overrides the keyring; check `atl auth status` → `token_source` |

@@ -14,7 +14,7 @@ installs it.
 1. Install `atl` so it is on `PATH` for every project (see [releasing.md](releasing.md)):
 
    ```bash
-   uv tool install git+https://github.com/pietro-bertozzi/atlassian-cli-toolkit@v0.1.0
+   uv tool install git+https://github.com/pietro-bertozzi/atlassian-cli-toolkit@v0.2.0
    ```
 
    Inside this repository `uv run atl ...` also works.

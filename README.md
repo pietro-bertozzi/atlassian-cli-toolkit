@@ -11,7 +11,7 @@ confirmation. It is meant for humans in a terminal and for coding agents calling
 Use `atl` in any project (needs [uv](https://docs.astral.sh/uv/)):
 
 ```bash
-uv tool install git+https://github.com/pietro-bertozzi/atlassian-cli-toolkit@v0.1.0
+uv tool install git+https://github.com/pietro-bertozzi/atlassian-cli-toolkit@v0.2.0
 atl setup claude-skill   # optional: teach Claude Code to use atl in all your projects
 ```
 

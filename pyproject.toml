@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "atlassian-cli-toolkit"
 dynamic = ["version"]
-description = "Read-only command line toolkit for Atlassian Cloud (Jira) built on the official REST APIs."
+description = "Command line toolkit for Atlassian Cloud (Jira), read-only by default, built on the official REST APIs."
 readme = "README.md"
 requires-python = ">=3.11"
 license = { file = "LICENSE" }

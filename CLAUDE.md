@@ -5,10 +5,11 @@ Read this file fully at the start of every session.
 
 ## 1. What this project is
 
-`atlassian-cli-toolkit` is a personal, company-independent CLI (`atl`) for reading data from
-Atlassian Cloud products through their official REST APIs. It is meant to be used directly by a
-human in a terminal and by coding agents (Claude Code etc.) through shell commands. It does not
-use MCP and does not depend on MCP.
+`atlassian-cli-toolkit` is a personal, company-independent CLI (`atl`) for reading (and, through
+a few confirmed write commands, updating) data in Atlassian Cloud products through their
+official REST APIs. It is meant to be used directly by a human in a terminal and by coding
+agents (Claude Code etc.) through shell commands. It does not use MCP and does not depend on
+MCP.
 
 **Current scope: Jira Cloud only.** Confluence and Bitbucket may be added later. Do not
 implement, scaffold or create placeholder files for them now. Design choices should not make
@@ -53,8 +54,14 @@ Atlassian Data Center / Server is out of scope.
     `https://api.atlassian.com/ex/jira/<cloudId>`; `cloud_id` is required in the profile.
   The rest of the code must not care which mode is active; only the client's base-URL logic does.
   Tokens expire (max one year): surface 401 as a clear "token expired or revoked" auth error.
-- Read-only is the default. Write operations (transitions, comments, edits) are a later,
-  separate phase and require explicit flags, confirmation and their own review.
+- Read-only is the default. Write commands (currently: add comment, transition, assign) follow
+  the safety model in docs/jira.md "Write commands": a preview on stderr; `--dry-run`; a
+  y/N prompt on a terminal or `--yes` otherwise; POSTs are never retried after errors that may
+  have applied them; read and write commands keep distinct names so the Claude Code skill can
+  pre-approve reads by prefix. Real protection comes from token scopes (read-only scoped
+  token) and Claude Code's permission prompt. Any new
+  write command must use the same model and gets its own review. Creating or editing issues
+  is out of scope for now.
 
 ## 4. Security rules (non-negotiable)
 

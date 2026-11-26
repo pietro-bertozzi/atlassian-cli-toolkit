@@ -11,14 +11,22 @@ Status legend: **available** = implemented and tested; **planned** = not impleme
   can do (classic) or only what its scopes allow (scoped).
 - **Token modes** (chosen per profile):
 
-  | Mode      | Token type             | Base URL                                       | Extra setting |
-  | --------- | ---------------------- | ---------------------------------------------- | ------------- |
-  | `classic` | unscoped               | `https://<site>`                               | none          |
-  | `scoped`  | scoped (read-only advised) | `https://api.atlassian.com/ex/jira/<cloudId>` | `cloud_id`    |
+  | Mode      | Token type | Can do | Base URL | Extra setting |
+  | --------- | ---------- | ------ | -------- | ------------- |
+  | `classic` | "API token" (without scopes) | everything your account can do | `https://<site>` | none |
+  | `scoped`  | "API token with scopes" (Atlassian's recommendation) | only the scopes you pick | `https://api.atlassian.com/ex/jira/<cloudId>` | `cloud_id` (found automatically) |
 
-  Source: <https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/>.
-  Atlassian's pages do not say how to look up the `cloudId`; for now you supply it yourself.
+  Sources: <https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/>,
+  <https://support.atlassian.com/atlassian-cloud/kb/401-unauthorized-error-when-service-account-accesses-jira-or-confluence-api/>.
   Only the client's base-URL logic depends on the mode.
+- **Cloud ID**: the id of your site, needed by scoped tokens. `atl auth login --mode scoped`
+  reads it from `https://<site>/_edge/tenant_info` (no credentials sent), the method documented
+  in <https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/>; that page
+  also shows how to find it by hand (admin.atlassian.com) if you need `--cloud-id`.
+- **Recommended setup**: a **scoped token with read scopes only** for everyday and agent use:
+  Jira itself then refuses any write, whatever the CLI does. When you want the write commands,
+  use a second profile with a token that also has the write scope (or your classic token),
+  e.g. `atl -p write jira issue comment ...`.
 - **Profile**: a named set of connection settings (site, email, mode, cloud id) so you can
   switch between sites/accounts. Profile selection: `--profile` > `ATL_PROFILE` >
   `default_profile` in the config file.
@@ -40,7 +48,7 @@ pointing to the environment variable; there is no plaintext-file fallback.
 
 ## 3. Global options *(available)*
 
-Placed **before** the command: `atl -f json jira me`. With `-f table` and output that is
+Placed **before** the command: `atl -f json jira mine`. With `-f table` and output that is
 not a terminal (a pipe or a file), tables are 160 characters wide and column headers are never
 shortened.
 
@@ -71,15 +79,46 @@ atl auth login
 printf '%s' "$TOKEN" | atl -p work auth login \
     --site example.atlassian.net --email alice@example.com --token-stdin
 
-# Scoped token
-printf '%s' "$TOKEN" | atl -p work auth login --site example.atlassian.net \
-    --email alice@example.com --mode scoped --cloud-id <cloudId> --token-stdin
+# Scoped token (Cloud ID found automatically; add --cloud-id <id> to skip the lookup)
+atl -p work auth login --site example.atlassian.net --email alice@example.com \
+    --mode scoped --token-file .secrets/jira-token.txt
 ```
+
+#### Creating a scoped token
+
+1. Open <https://id.atlassian.com/manage-profile/security/api-tokens> → **Create API token
+   with scopes**; give it a name and an expiry (1–365 days).
+2. App: **Jira**. Scopes: tick the ones in the table below for the commands you want. For a
+   read-only token: `read:jira-work` and `read:jira-user` (or, if the page shows granular
+   scopes, the granular ones listed for the read commands).
+3. Copy the token, then log in with `--mode scoped` as above and verify with
+   `atl -p work auth status --check`.
+
+#### Scopes needed per command
+
+From the official REST API specification (classic scope, and the granular scopes Atlassian
+lists for the same endpoint):
+
+| Command | Classic scope | Granular scopes |
+| ------- | ------------- | --------------- |
+| `auth status --check` | `read:jira-user` | `read:user:jira`, `read:application-role:jira`, `read:group:jira`, `read:avatar:jira` |
+| `search`, `mine` | `read:jira-work` | `read:issue-details:jira`, `read:audit-log:jira`, `read:avatar:jira`, `read:field-configuration:jira`, `read:issue-meta:jira` |
+| `issue get` | `read:jira-work` | `read:issue:jira`, `read:issue-meta:jira`, `read:issue-security-level:jira`, `read:issue.vote:jira`, `read:issue.changelog:jira`, `read:avatar:jira`, `read:status:jira`, `read:user:jira`, `read:field-configuration:jira` |
+| `issue get --comments` | `read:jira-work` | `read:comment:jira`, `read:comment.property:jira`, `read:group:jira`, `read:project:jira`, `read:project-role:jira`, `read:user:jira`, `read:avatar:jira` |
+| `issue get` (possible status changes), `issue transition` (lookup) | `read:jira-work` | `read:issue.transition:jira`, `read:status:jira`, `read:field-configuration:jira` |
+| `projects` | `read:jira-work` | `read:project:jira`, `read:issue-type:jira`, `read:project.property:jira`, `read:user:jira`, `read:application-role:jira`, `read:avatar:jira`, `read:group:jira`, `read:issue-type-hierarchy:jira`, `read:project-category:jira`, `read:project-version:jira`, `read:project.component:jira` |
+| `fields` | `read:jira-work` | `read:field:jira`, `read:avatar:jira`, `read:project-category:jira`, `read:project:jira`, `read:field-configuration:jira` |
+| `issue assign --to NAME` (user search) | `read:jira-user` | `read:user:jira`, `read:issue:jira`, `read:project:jira`, `read:application-role:jira`, `read:avatar:jira`, `read:group:jira` |
+| `issue comment` | `write:jira-work` | `write:comment:jira` (+ the read scopes of `issue get --comments`) |
+| `issue transition` | `write:jira-work` | `write:issue:jira`, `write:issue.property:jira` |
+| `issue assign` | `write:jira-work` | `write:issue:jira` |
+
+A missing scope shows up as HTTP 401 or 403 (exit 4).
 
 The profile name is `--profile`, else `ATL_PROFILE`, else `default`. The first profile created
 becomes `default_profile`. `--site` may be a bare host or a URL (it is normalised). The token
 is stored first; if that fails nothing is written to the config. Login does **not** call Jira;
-use `atl jira me` to verify.
+use `atl auth status --check` to verify.
 
 #### Token from a file (works in any terminal)
 
@@ -108,29 +147,24 @@ shows a token only once: if you no longer have it, revoke it and create a new on
 
 Shows the selected profile and where its token comes from (`keyring`, `environment` or `null`).
 Never shows the token. Keys: `profile`, `site`, `email`, `mode`, `cloud_id`, `token_source`,
-`config_path`.
+`config_path`. It works offline: it does not contact Jira.
+
+`--check` also asks Jira who the token belongs to — the quickest way to test that site, email
+and token work. It adds `check` (`"ok"`), `account_id` and `display_name`; a bad or expired
+token gives exit 4, a network problem exit 6.
+
+- **Endpoint**: `GET /rest/api/3/myself`
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/>).
+- **Scope** (scoped tokens): `read:jira-user`.
+
+```bash
+atl -f json auth status --check
+```
 
 ### `atl auth logout` *(available)*
 
 Deletes the selected profile and its keyring token. If `ATL_JIRA_API_TOKEN` is set it reminds
 you that the variable is untouched.
-
-### `atl jira me` *(available)*
-
-Shows the user the token authenticates as. The quickest way to check that site, email and token
-work.
-
-- **Endpoint**: `GET /rest/api/3/myself`
-  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-myself/>).
-- **Permission**: permission to access Jira. **Scope** (scoped tokens): `read:jira-user`.
-- **Jira web UI**: your profile (avatar menu → Profile).
-- **JSON output** (stable keys): `account_id`, `display_name`, `email`, `active`, `time_zone`,
-  `account_type`. `email`, `time_zone` and `account_type` can be `null`: Jira hides some fields
-  according to the user's Atlassian Account privacy settings.
-
-```bash
-atl -f json jira me
-```
 
 ### `atl jira issue get <KEY>` *(available)*
 
@@ -172,17 +206,40 @@ ticket from the terminal or to hand a ticket to a coding agent as clean text.
   (display names), `labels` (list), `resolution`, `created`, `updated` (ISO 8601 as returned
   by Jira), `due_date` (`YYYY-MM-DD`), `subtasks`, `links`, `description` (Markdown),
   `extra_fields` (object, `{}` unless `--field` is used). Optional values are `null` when
-  unset; `subtasks` and `links` are empty lists when there are none.
+  unset; `subtasks`, `links` and `transitions` are empty lists when there are none.
   - `subtasks`: list of `{key, summary, status, status_category_key, issue_type}`.
   - `links`: the same keys plus `relation`, Jira's wording for the link seen from this issue,
     e.g. `blocks` (this issue blocks `key`) or `is blocked by` (`key` blocks this issue).
+  - `transitions`: the status changes you can make now (see `issue transition`), list of
+    `{id, name, to_status, to_status_category_key, has_screen}`. Returned in the same request
+    (`expand=transitions`); empty if you lack *Transition issues*.
 - **Markdown output** (`-f markdown`) is a document: `# KEY: summary`, a metadata list, then
-  `## Description`, `## Subtasks` and `## Links` sections (each only when not empty). In the
-  table format each subtask/link is one line: `KEY [status] summary`.
+  `## Description`, `## Subtasks`, `## Links` and `## Possible status changes` sections (each
+  only when not empty). In the table format each subtask/link is one line
+  (`KEY [status] summary`) and each transition `Name -> Status`.
+
+**With `--comments`**: everything about the issue in one call (2+ requests), the recommended
+input for an agent. Comments are the discussion on an issue; decisions and clarifications
+often live there rather than in the description.
+
+- Oldest first; `--newest-first` reverses; `-n/--limit` (default 100, max 1000) caps them,
+  with a note on stderr when more exist.
+- JSON gets an extra `comments` key: list of `{id, author, created, updated, visibility,
+  body}` (`body` in Markdown, `author` a display name). A comment can be **restricted** to a
+  group or project role: it is returned only if you belong to it, and `visibility` names the
+  group/role (`null` when unrestricted).
+- Markdown gets a `## Comments` section, one `### author · created` heading per comment (plus
+  `edited ...` and `visible to ...` when relevant); the table format prints a comments table
+  after the issue.
+- Endpoint: `GET /rest/api/3/issue/{issueIdOrKey}/comment`
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-get>),
+  offset pagination (`startAt`, up to 100 per request).
+- Jira web UI: the *Activity* section of an issue, *Comments* tab.
 
 ```bash
 atl -f json jira issue get DEMO-123
-atl -f markdown jira issue get DEMO-123 > DEMO-123.md
+atl -f markdown jira issue get DEMO-123 --comments > DEMO-123.md
+atl -f json jira issue get DEMO-123 --comments --newest-first -n 5
 ```
 
 **ADF conversion**
@@ -202,7 +259,7 @@ atl -f markdown jira issue get DEMO-123 > DEMO-123.md
 
 **Limitations**
 
-- Comments are shown by `issue comments` / `issue context`, not by `issue get`.
+- Comments are included only with `--comments`.
   Attachments, worklogs, history and custom fields (story points, sprint...) are not shown yet.
 - Attachments are not downloaded; table cell merges (colspan/rowspan) are ignored.
 - Markdown characters typed as plain text in Jira (e.g. `*word*`) are not escaped, so they
@@ -211,48 +268,6 @@ atl -f markdown jira issue get DEMO-123 > DEMO-123.md
   milliseconds, others as seconds; dates are shown in UTC.
 - HTTP 404 means *either* the issue does not exist *or* you are not allowed to see it; Jira
   does not say which.
-
-### `atl jira issue comments <KEY>` *(available)*
-
-Shows an issue's comments with their bodies converted to Markdown, oldest first.
-
-- **Concepts**: comments are the discussion on an issue; decisions and clarifications often
-  live there rather than in the description. A comment can be **restricted** to a group or
-  project role; such comments are returned only if you belong to it, and `visibility` names
-  the group/role.
-- **Jira web UI**: the *Activity* section of an issue, *Comments* tab.
-- **Endpoint**: `GET /rest/api/3/issue/{issueIdOrKey}/comment`
-  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-get>),
-  offset pagination (`startAt`, up to 100 per request), `orderBy=created` or `-created`.
-- **Permissions**: *Browse projects*; restricted comments need membership of the group/role.
-  **Scope**: `read:jira-work`.
-- **Options**: `--limit/-n` (default 100, max 1000), `--newest-first`. When more comments
-  exist, a note is printed on stderr.
-- **JSON output**: list of `{id, author, created, updated, visibility, body}`; `body` is
-  Markdown, `author` a display name, `visibility` `null` when unrestricted.
-- **Markdown output**: one `## author · created` heading per comment (plus `edited ...` and
-  `visible to ...` when relevant), then the body.
-
-```bash
-atl -f markdown jira issue comments DEMO-123
-atl -f json jira issue comments DEMO-123 --newest-first -n 5
-```
-
-### `atl jira issue context <KEY>` *(available)*
-
-Everything needed to understand an issue in one call, meant for coding agents: the fields,
-subtasks, links and description of `issue get` plus the comments of `issue comments`.
-
-- **Endpoints**: the two above (2+ requests).
-- **Options**: `--limit/-n` for comments (default 100), `--field` (see "Extra fields").
-- **JSON output**: the `issue get` object with an extra `comments` key (list, as in
-  `issue comments`).
-- **Markdown output**: the `issue get` document followed by `## Comments`, one `###` heading
-  per comment. This is the recommended input for an agent:
-
-```bash
-atl -f markdown jira issue context DEMO-123
-```
 
 ### `atl jira search "<JQL>"` and `atl jira mine` *(available)*
 
@@ -350,7 +365,7 @@ atl -f json jira fields --custom
 
 ### Extra fields: `--field` *(available)*
 
-`issue get`, `issue context`, `search` and `mine` accept `--field <id>` to include any other
+`issue get`, `search` and `mine` accept `--field <id>` to include any other
 field, typically a custom field such as story points. Repeat the option or separate ids with
 commas. Unknown ids are not an error: Jira just omits them and the value is `null`.
 
@@ -361,7 +376,7 @@ commas. Unknown ids are not an error: Jira just omits them and the value is `nul
 
 ```bash
 atl jira mine --field customfield_10016
-atl -f json jira issue context DEMO-123 --field customfield_10016,customfield_10020
+atl -f json jira issue get DEMO-123 --comments --field customfield_10016,customfield_10020
 ```
 
 - **JSON**: values go in `extra_fields`, keyed by id: `{"customfield_10016": 5.0}`.
@@ -374,16 +389,97 @@ atl -f json jira issue context DEMO-123 --field customfield_10016,customfield_10
 - Field ids must look like `customfield_10016` or `fixVersions`; anything else is a usage
   error (exit 2).
 
-### Planned
+### Write commands *(available)*
 
-Sprints/boards, issue history. Write commands (comment, transition, assign) are a later,
-separate phase. *(planned)*
+`atl` can add a comment, move an issue to another status and assign it. Creating or editing
+issues is not supported.
+
+**Safety model** (the same for every write command):
+
+1. **Preview.** The exact change is printed on stderr before anything is sent.
+2. **`--dry-run`** prints the preview and the request, sends nothing.
+3. **Confirmation.** On a terminal you are asked `Proceed? [y/N]`. When not interactive
+   (scripts, agents) the command refuses (exit 2) unless `--yes` is given.
+4. **No duplicate writes.** A comment or transition (POST) is never retried after a network
+   error or a 5xx answer, because Jira may already have applied it: the error tells you to
+   check in Jira. Only "429 Too Many Requests" with `Retry-After` is retried (not processed).
+5. **Token scopes.** A read-only scoped token cannot write at all: Jira refuses (exit 4).
+   For writes use a token with `write:jira-work` (e.g. in a separate profile). Jira project
+   permissions apply as in the web UI.
+6. **Coding agents.** The `atl-jira` Claude Code skill pre-approves read commands only, so
+   Claude Code asks you before every write.
+
+Output: stdout gets a JSON-friendly record with `"dry_run": true|false` and the result;
+messages go to stderr.
+
+#### `atl jira issue comment KEY (--body TEXT | --body-file PATH)`
+
+Adds a comment. The text is Markdown, converted to Atlassian Document Format: paragraphs (a
+single line break is kept), headings, bullet/ordered lists (one nesting level), fenced code
+blocks, bold, italic, strikethrough, inline code and `[text](https://...)` links. Anything else
+is sent as plain text. `--body-file -` reads stdin.
+
+- **Endpoint**: `POST /rest/api/3/issue/{issueIdOrKey}/comment`
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-post>).
+- **Permissions**: *Browse projects* and *Add comments*.
+- **Output**: `{key, dry_run, comment_id, created}` (dry run: `{key, dry_run, request}`).
+
+```bash
+atl jira issue comment DEMO-123 --body "Fixed in **v2.3**, see [PR](https://example.com/pr/1)"
+atl -f json jira issue comment DEMO-123 --body-file note.md --yes
+```
+
+#### `atl jira issue transition KEY --to NAME`
+
+- **Concepts**: a **status** is where an issue is (To Do, In Review...). A **transition** is
+  a named move between statuses defined by the project's **workflow** ("Start progress",
+  "Send to review"). Which transitions exist depends on the current status, the workflow and
+  your permissions: `atl jira issue get KEY` shows them ("Possible status changes"). Some
+  transitions open a **screen** (a form) in the
+  web UI; `atl` cannot fill it, so if the screen has required fields Jira rejects the move
+  (HTTP 400, exit 6) and you have to do it in the browser (`has_screen` warns you).
+- `--to` matches a transition name or, failing that, a target status name (case
+  insensitive). No match or several matches → exit 2 with the list of options.
+- **Endpoints**: `GET` and `POST /rest/api/3/issue/{issueIdOrKey}/transitions`
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-transitions-get>).
+- **Permissions**: *Browse projects* and *Transition issues*.
+- **Output**: `{key, transition, transition_id, to_status, dry_run}`.
+
+```bash
+atl jira issue get DEMO-123              # see "Possible status changes"
+atl jira issue transition DEMO-123 --to "In Review"
+```
+
+#### `atl jira issue assign KEY (--to me|NAME | --account-id ID | --unassign)`
+
+- `--to me` assigns to the token's user. `--to NAME` searches the users who can be assigned
+  to this issue (display name or email, prefix match): an exact name/email match wins,
+  otherwise exactly one result is required; several → exit 2 listing them (inactive users are
+  ignored). `--account-id` skips the search. `--unassign` removes the assignee.
+- **Endpoints**: `PUT /rest/api/3/issue/{issueIdOrKey}/assignee` with `{"accountId": ...}`
+  (`null` = unassigned)
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-assignee-put>);
+  user search `GET /rest/api/3/user/assignable/search`
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-user-search/#api-rest-api-3-user-assignable-search-get>).
+- **Permissions**: *Browse projects* and *Assign issues*. **Scope** for the search:
+  `read:jira-user`.
+- **Output**: `{key, assignee, account_id, dry_run}`.
+
+```bash
+atl jira issue assign DEMO-123 --to me
+atl jira issue assign DEMO-123 --unassign --dry-run
+```
+
+### Not planned for now
+
+Creating or editing issues, sprints/boards, issue history, attachments.
 
 ## 5. HTTP behaviour *(available)*
 
-- Timeout 30 s. Read-only GET requests are retried up to 3 times with exponential backoff and
+- Timeout 30 s. GET and PUT requests are retried up to 3 times with exponential backoff and
   jitter: on 429 only when `Retry-After` is present and ≤ 60 s (otherwise fail fast), and on
-  502/503/504 and network errors. See
+  502/503/504 and network errors. POST requests (comment, transition) are retried only on such
+  a 429, never after a network error or 5xx (they may already be applied). See
   <https://developer.atlassian.com/cloud/jira/platform/rate-limiting/>.
 - TLS verification is always on.
 - 401 → "token may be expired or revoked" (exit 4); 403 → permission/scope problem (exit 4);
@@ -397,8 +493,12 @@ separate phase. *(planned)*
 | `No usable OS keyring` (exit 3) | Headless machine: export `ATL_JIRA_API_TOKEN` instead |
 | Cannot paste the token into the hidden prompt | Use `--token-file` (see "Token from a file" under `atl auth login`) |
 | HTTP 401 (exit 4) | Token expired/revoked, or email does not belong to the token; create a new token and log in again |
-| HTTP 401 with a scoped token | Wrong `cloud_id`, or the token lacks a scope (`read:jira-user` for `me`) |
+| HTTP 401 with a scoped token | Wrong `cloud_id`, the token lacks a scope (see "Scopes needed per command"), or it is a classic token used with `--mode scoped` |
+| `Could not find the Cloud ID` at login | Network/proxy blocks the lookup: pass `--cloud-id` (see the Cloud ID link in section 1) |
 | HTTP 403 (exit 4) | The account/token lacks permission for that resource |
+| `Not confirmed: nothing was sent` (exit 2) | Not on a terminal: add `--yes` after checking the preview |
+| `transition` fails with HTTP 400 (exit 6) | The transition's screen has required fields: do it in the browser |
+| `may or may not have been applied` (exit 6) | Network error or 5xx during a comment/transition: check the issue in Jira before retrying |
 | `search` gives HTTP 400 (exit 6) | Invalid or unbounded JQL; Jira's message is shown. Add a restriction such as `project = X` |
 | `issue get` gives HTTP 404 (exit 5) | Wrong key, or you lack *Browse projects* / issue security permission for it. Check by opening `https://<site>/browse/<KEY>` in the browser with the same account |
 | `issue get` fails with a scoped token | The token needs the `read:jira-work` scope |

@@ -1,3 +1,3 @@
-"""atlassian-cli-toolkit: read-only CLI for Atlassian Cloud."""
+"""atlassian-cli-toolkit: CLI for Atlassian Cloud, read-only by default."""
 
 __version__ = "0.1.0"

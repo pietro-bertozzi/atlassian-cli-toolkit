@@ -5,6 +5,33 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Write commands, with a preview, `--dry-run`, and a y/N prompt on a terminal or `--yes`
+  otherwise:
+  - `atl jira issue comment KEY --body/--body-file`: add a comment written in Markdown
+    (converted to Atlassian Document Format);
+  - `atl jira issue transition KEY --to NAME`: move an issue to another status;
+  - `atl jira issue assign KEY --to me|NAME | --account-id ID | --unassign`.
+- `atl jira issue get` shows the possible status changes (`transitions`) in the same request,
+  and `--comments` accepts `--newest-first`.
+- `atl auth login --mode scoped` finds the site's Cloud ID automatically (documented
+  `/_edge/tenant_info` endpoint); `--cloud-id` is now optional. Docs list the scopes each
+  command needs and recommend a read-only scoped token for everyday and agent use.
+
+### Changed
+
+- **Breaking:** `atl jira me` is replaced by `atl auth status --check` (adds `check`,
+  `account_id`, `display_name` to the status record).
+- **Breaking:** `atl jira issue context KEY` and `atl jira issue comments KEY` are replaced by
+  `atl jira issue get KEY --comments` (`-n` limits the comments, `--newest-first` reverses
+  them).
+- HTTP client: POST requests are never retried after a network error or 5xx (no duplicate
+  comments); PUT is retried like GET.
+- The `atl-jira` Claude Code skill pre-approves only read commands, so Claude Code asks
+  before every write, and tells agents to write only with the user's approval. Re-run
+  `atl setup claude-skill --force` after upgrading.
+
 ## [0.1.0] - 2026-11-26
 
 ### Added

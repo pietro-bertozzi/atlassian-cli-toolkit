@@ -29,7 +29,7 @@ class AtlGroup(TyperGroup):
 app = typer.Typer(
     name="atl",
     cls=AtlGroup,
-    help="Read-only CLI for Atlassian Cloud.",
+    help="CLI for Atlassian Cloud (Jira). Read-only by default; write commands ask to confirm.",
     no_args_is_help=True,
     add_completion=False,
     pretty_exceptions_show_locals=False,

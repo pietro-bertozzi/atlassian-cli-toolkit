@@ -1,7 +1,8 @@
 # atlassian-cli-toolkit
 
-`atl` is a personal, read-only command line tool for Atlassian Cloud, built on the official REST
-APIs. It is meant for humans in a terminal and for coding agents calling shell commands.
+`atl` is a personal command line tool for Atlassian Cloud, built on the official REST APIs.
+It is read-only by default; the few write commands preview the change and ask for
+confirmation. It is meant for humans in a terminal and for coding agents calling shell commands.
 
 **Status:** early development. Current scope: Jira Cloud only.
 
@@ -22,7 +23,7 @@ repository and run `uv sync` (plain `pip install .` works too).
 ```bash
 atl auth login           # prompts for site, email and (hidden) API token
 atl auth status          # shows the profile; never the token
-atl -f json jira me      # checks that the credentials work
+atl auth status --check  # checks that site, email and token work
 atl jira mine                # your open issues
 atl jira issue get DEMO-123   # one issue, description as Markdown
 ```
@@ -52,15 +53,14 @@ atl jira search --help  # arguments and options of one command
 
 ## Available / planned
 
-- `atl auth login | status | logout` — available
-- `atl jira me` — available
-- `atl jira issue get` — available
+- `atl auth login | status [--check] | logout` — available
 - `atl jira search` (JQL), `atl jira mine` — available
-- `atl jira issue comments`, `atl jira issue context` (all of an issue in one call, for
-  agents) — available
+- `atl jira issue get [--comments]` (all of an issue in one call: fields, subtasks, links,
+  possible status changes, description, comments) — available
 - `atl jira projects`, `atl jira fields` (find custom field ids) — available
 - `--field <id>` on issue/search commands (custom fields such as story points) — available
-- Sprints, issue history — planned
+- Writes: `atl jira issue comment`, `transition`, `assign` — available, with preview,
+  `--dry-run` and confirmation (`--yes` when not interactive)
 
 ## Development
 

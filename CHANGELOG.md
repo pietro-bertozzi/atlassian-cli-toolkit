@@ -7,6 +7,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `atl jira issue comments <KEY>`: comments as Markdown, with `startAt` pagination,
+  `--limit` and `--newest-first`.
+- `atl jira issue context <KEY>`: issue fields, subtasks, links, description and comments in
+  one call (for coding agents).
+- `subtasks` and `links` in `issue get` output.
+- README: how to discover commands with `--help`.
 - `atl jira search "<JQL>"` and `atl jira mine`: list issues via `/rest/api/3/search/jql`
   with `nextPageToken` pagination and `--limit`.
 - `status_category_key` in `issue get` output: the language-independent status category key

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from atlassian_toolkit.core.client import JiraClient
 from atlassian_toolkit.jira import api
-from atlassian_toolkit.jira.models import CurrentUser, Issue, IssueSummary
+from atlassian_toolkit.jira.models import Comment, CurrentUser, Issue, IssueSummary
 
 # Fields requested for `atl jira issue get`. Asking only for these keeps the response small and
 # avoids custom fields, whose ids differ per site.
@@ -22,6 +22,8 @@ ISSUE_FIELDS = (
     "updated",
     "duedate",
     "resolution",
+    "subtasks",
+    "issuelinks",
     "description",
 )
 
@@ -48,3 +50,11 @@ def search_issues(
     """Run a JQL search; return up to ``limit`` issues and whether more were available."""
     raw, more = api.search_issues(client, jql, SEARCH_FIELDS, limit)
     return [IssueSummary.from_api(item, site) for item in raw], more
+
+
+def get_comments(
+    client: JiraClient, issue_id_or_key: str, limit: int, newest_first: bool = False
+) -> tuple[list[Comment], bool]:
+    """Return up to ``limit`` comments (oldest first by default) and whether more exist."""
+    raw, more = api.get_comments(client, issue_id_or_key, limit, newest_first)
+    return [Comment.from_api(item) for item in raw], more

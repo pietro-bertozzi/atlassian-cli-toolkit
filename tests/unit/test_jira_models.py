@@ -1,5 +1,5 @@
 from atlassian_toolkit.core.config import normalize_site
-from atlassian_toolkit.jira.models import CurrentUser, Issue
+from atlassian_toolkit.jira.models import Comment, CurrentUser, Issue
 
 
 def test_from_api_maps_fields() -> None:
@@ -55,6 +55,30 @@ ISSUE_BODY = {
         "created": "2026-01-10T09:00:00.000+0100",
         "updated": "2026-01-11T10:30:00.000+0100",
         "duedate": "2026-02-01",
+        "subtasks": [
+            {
+                "id": "10010",
+                "key": "DEMO-124",
+                "fields": {
+                    "summary": "Write the fix",
+                    "status": {"name": "Done", "statusCategory": {"key": "done"}},
+                    "issuetype": {"name": "Sub-task"},
+                },
+            }
+        ],
+        "issuelinks": [
+            {
+                "id": "1",
+                "type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+                "outwardIssue": {"key": "DEMO-7", "fields": {"summary": "Release"}},
+            },
+            {
+                "id": "2",
+                "type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+                "inwardIssue": {"key": "DEMO-9", "fields": {"summary": "Login API"}},
+            },
+            {"id": "3", "type": {"name": "Broken"}},
+        ],
         "description": {
             "type": "doc",
             "version": 1,
@@ -98,6 +122,33 @@ def test_issue_from_api_maps_fields() -> None:
         "created": "2026-01-10T09:00:00.000+0100",
         "updated": "2026-01-11T10:30:00.000+0100",
         "due_date": "2026-02-01",
+        "subtasks": [
+            {
+                "key": "DEMO-124",
+                "summary": "Write the fix",
+                "status": "Done",
+                "status_category_key": "done",
+                "issue_type": "Sub-task",
+            }
+        ],
+        "links": [
+            {
+                "key": "DEMO-7",
+                "summary": "Release",
+                "status": None,
+                "status_category_key": None,
+                "issue_type": None,
+                "relation": "blocks",
+            },
+            {
+                "key": "DEMO-9",
+                "summary": "Login API",
+                "status": None,
+                "status_category_key": None,
+                "issue_type": None,
+                "relation": "is blocked by",
+            },
+        ],
         "description": "Steps:\n\n- Open",
     }
 
@@ -123,3 +174,35 @@ def test_issue_from_api_tolerates_missing_fields_object() -> None:
     issue = Issue.from_api({"key": "DEMO-3"}, "example.atlassian.net")
     assert issue.summary == ""
     assert issue.id == ""
+
+
+def test_comment_from_api() -> None:
+    comment = Comment.from_api(
+        {
+            "id": "100",
+            "author": {"accountId": "abc123", "displayName": "Alice Example"},
+            "body": {
+                "type": "doc",
+                "version": 1,
+                "content": [{"type": "paragraph", "content": [{"type": "text", "text": "LGTM"}]}],
+            },
+            "created": "2026-01-10T09:00:00.000+0100",
+            "updated": "2026-01-10T09:05:00.000+0100",
+            "visibility": {"type": "role", "value": "Developers"},
+        }
+    )
+    assert comment.to_record() == {
+        "id": "100",
+        "author": "Alice Example",
+        "created": "2026-01-10T09:00:00.000+0100",
+        "updated": "2026-01-10T09:05:00.000+0100",
+        "visibility": "Developers",
+        "body": "LGTM",
+    }
+
+
+def test_comment_from_api_tolerates_missing_fields() -> None:
+    comment = Comment.from_api({"id": "101"})
+    assert comment.author is None
+    assert comment.visibility is None
+    assert comment.body == ""

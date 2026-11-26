@@ -28,13 +28,26 @@ The token is stored in your OS keyring, never in a config file. On headless mach
 `ATL_JIRA_API_TOKEN` instead. Details, scoped tokens, output formats and troubleshooting:
 [docs/jira.md](docs/jira.md).
 
+## Discover commands
+
+There is no `help` or `list` command: add `--help` at any level. The output is generated from
+the code, so it is always current (useful for coding agents too).
+
+```bash
+atl --help              # groups: auth, jira
+atl jira --help         # Jira commands
+atl jira search --help  # arguments and options of one command
+```
+
 ## Available / planned
 
 - `atl auth login | status | logout` — available
 - `atl jira me` — available
 - `atl jira issue get` — available
 - `atl jira search` (JQL), `atl jira mine` — available
-- Issue comments, sprints, story points — planned
+- `atl jira issue comments`, `atl jira issue context` (all of an issue in one call, for
+  agents) — available
+- Projects, fields, sprints, story points, issue history — planned
 
 ## Development
 

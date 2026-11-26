@@ -72,3 +72,40 @@ def search_issues(
             return issues[:limit], False
         seen_tokens.add(token)
     return issues[:limit], True
+
+
+COMMENT_PAGE_SIZE = 100
+
+
+def get_comments(
+    client: JiraClient, issue_id_or_key: str, limit: int, newest_first: bool = False
+) -> tuple[list[dict[str, Any]], bool]:
+    """``GET /rest/api/3/issue/{issueIdOrKey}/comment`` — comments, following ``startAt`` pages.
+
+    Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-get
+    Required scope (scoped tokens): ``read:jira-work``. Only comments the user may see are
+    returned. Returns at most ``limit`` comments and whether more were available.
+    """
+    path = f"/rest/api/3/issue/{quote(issue_id_or_key, safe='')}/comment"
+    comments: list[dict[str, Any]] = []
+    start = 0
+    total: int | None = None
+    while len(comments) < limit:
+        params = {
+            "startAt": start,
+            "maxResults": min(COMMENT_PAGE_SIZE, limit - len(comments)),
+            "orderBy": "-created" if newest_first else "created",
+        }
+        page = _expect_object(client.get(path, params=params), path)
+        batch = page.get("comments")
+        if not isinstance(batch, list):
+            raise ApiError(f"Unexpected response from {path} (no 'comments' list).")
+        comments.extend(item for item in batch if isinstance(item, dict))
+        start += len(batch)
+        raw_total = page.get("total")
+        total = (
+            raw_total if isinstance(raw_total, int) and not isinstance(raw_total, bool) else None
+        )
+        if not batch or (total is not None and start >= total):
+            return comments[:limit], False
+    return comments[:limit], total is None or start < total

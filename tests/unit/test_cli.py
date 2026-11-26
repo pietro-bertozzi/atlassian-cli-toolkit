@@ -234,7 +234,7 @@ def test_issue_get_json_output(logged_in: MemoryKeyring, mock_jira) -> None:  # 
         "key", "id", "url", "summary", "issue_type", "status", "status_category",
         "status_category_key", "priority",
         "project_key", "parent_key", "assignee", "reporter", "labels", "resolution", "created",
-        "updated", "due_date", "description",
+        "updated", "due_date", "subtasks", "links", "description",
     ]  # fmt: skip
     assert data["url"] == "https://example.atlassian.net/browse/DEMO-123"
     assert data["description"] == "## Goal\n\nMake | it work"
@@ -426,3 +426,119 @@ def test_search_invalid_jql_exits_6_with_jira_message(logged_in: MemoryKeyring, 
     assert result.exit_code == 6
     assert "Error in the JQL Query" in result.stderr
     assert result.stdout == ""
+
+
+def _comment(n: int) -> dict:
+    return {
+        "id": str(n),
+        "author": {"displayName": "Alice Example"},
+        "created": f"2026-01-{n:02d}T09:00:00.000+0100",
+        "updated": f"2026-01-{n:02d}T09:00:00.000+0100",
+        "body": {
+            "type": "doc",
+            "version": 1,
+            "content": [{"type": "paragraph", "content": [{"type": "text", "text": f"c{n}"}]}],
+        },
+    }
+
+
+@pytest.fixture
+def jira_with_comments(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
+    """Serve ISSUE_BODY and 5 comments in pages of at most 2 (offset pagination)."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.path.endswith("/comment"):
+            start = int(request.url.params["startAt"])
+            size = min(2, int(request.url.params["maxResults"]))
+            numbers = list(range(1, 6))[start : start + size]
+            body = {
+                "startAt": start,
+                "maxResults": size,
+                "total": 5,
+                "comments": [_comment(n) for n in numbers],
+            }
+            return httpx.Response(200, json=body)
+        return httpx.Response(200, json=ISSUE_BODY)
+
+    def factory(profile, token):  # type: ignore[no-untyped-def]
+        return JiraClient(profile, token, transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(jira_commands, "JiraClient", factory)
+    return seen
+
+
+def test_comments_follow_start_at_pages(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "json", "jira", "issue", "comments", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert [c["body"] for c in data] == ["c1", "c2", "c3", "c4", "c5"]
+    assert list(data[0]) == ["id", "author", "created", "updated", "visibility", "body"]
+    starts = [r.url.params["startAt"] for r in jira_with_comments]
+    assert starts == ["0", "2", "4"]
+    assert jira_with_comments[0].url.path == "/rest/api/3/issue/DEMO-123/comment"
+    assert jira_with_comments[0].url.params["orderBy"] == "created"
+    assert "more exist" not in result.stderr
+
+
+def test_comments_limit_and_newest_first(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
+    args = ["-f", "json", "jira", "issue", "comments", "DEMO-123", "-n", "3", "--newest-first"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert len(json.loads(result.stdout)) == 3
+    assert jira_with_comments[0].url.params["orderBy"] == "-created"
+    assert "first 3 comments; more exist" in result.stderr
+
+
+def test_comments_markdown(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "markdown", "jira", "issue", "comments", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    assert result.stdout.startswith("## Alice Example · 2026-01-01T09:00:00.000+0100\n\nc1")
+
+
+def test_issue_context_json_has_issue_and_comments(
+    logged_in: MemoryKeyring,
+    jira_with_comments,  # type: ignore[no-untyped-def]
+) -> None:
+    result = runner.invoke(app, ["-f", "json", "jira", "issue", "context", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert data["key"] == "DEMO-123"
+    assert data["description"] == "## Goal\n\nMake | it work"
+    assert [c["body"] for c in data["comments"]] == ["c1", "c2", "c3", "c4", "c5"]
+    assert list(data)[-1] == "comments"
+
+
+def test_issue_context_markdown_sections(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "markdown", "jira", "issue", "context", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    out = result.stdout
+    assert out.startswith("# DEMO-123: Fix the login page")
+    assert out.index("## Description") < out.index("## Comments")
+    assert "### Alice Example · 2026-01-05T09:00:00.000+0100\n\nc5" in out
+    assert "- **subtasks**" not in out
+
+
+def test_issue_get_markdown_lists_subtasks_and_links(
+    logged_in: MemoryKeyring,
+    mock_jira,  # type: ignore[no-untyped-def]
+) -> None:
+    body = json.loads(json.dumps(ISSUE_BODY))
+    body["fields"]["subtasks"] = [
+        {"key": "DEMO-124", "fields": {"summary": "Write the fix", "status": {"name": "Done"}}}
+    ]
+    body["fields"]["issuelinks"] = [
+        {
+            "type": {"name": "Blocks", "inward": "is blocked by", "outward": "blocks"},
+            "inwardIssue": {"key": "DEMO-9", "fields": {"summary": "Login API"}},
+        }
+    ]
+    mock_jira(httpx.Response(200, json=body))
+    result = runner.invoke(app, ["-f", "markdown", "jira", "issue", "get", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    assert "## Subtasks\n\n- DEMO-124 [Done] Write the fix" in result.stdout
+    assert "## Links\n\n- is blocked by DEMO-9 Login API" in result.stdout
+    table = runner.invoke(app, ["-f", "table", "jira", "issue", "get", "DEMO-123"])
+    assert table.exit_code == 0, table.output
+    assert "DEMO-124 [Done] Write the fix" in table.stdout

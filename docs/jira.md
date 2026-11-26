@@ -167,10 +167,15 @@ ticket from the terminal or to hand a ticket to a coding agent as clean text.
 - **JSON output** (stable keys): `key`, `id`, `url`, `summary`, `issue_type`, `status`,
   `status_category`, `status_category_key`, `priority`, `project_key`, `parent_key`, `assignee`, `reporter`
   (display names), `labels` (list), `resolution`, `created`, `updated` (ISO 8601 as returned
-  by Jira), `due_date` (`YYYY-MM-DD`), `description` (Markdown). Optional values are `null`
-  when unset.
-- **Markdown output** (`-f markdown`) is a document: `# KEY: summary`, a metadata list, then a
-  `## Description` section.
+  by Jira), `due_date` (`YYYY-MM-DD`), `subtasks`, `links`, `description` (Markdown).
+  Optional values are `null` when unset; `subtasks` and `links` are empty lists when there are
+  none.
+  - `subtasks`: list of `{key, summary, status, status_category_key, issue_type}`.
+  - `links`: the same keys plus `relation`, Jira's wording for the link seen from this issue,
+    e.g. `blocks` (this issue blocks `key`) or `is blocked by` (`key` blocks this issue).
+- **Markdown output** (`-f markdown`) is a document: `# KEY: summary`, a metadata list, then
+  `## Description`, `## Subtasks` and `## Links` sections (each only when not empty). In the
+  table format each subtask/link is one line: `KEY [status] summary`.
 
 ```bash
 atl -f json jira issue get DEMO-123
@@ -194,8 +199,8 @@ atl -f markdown jira issue get DEMO-123 > DEMO-123.md
 
 **Limitations**
 
-- Comments, attachments, links between issues, worklogs and custom fields (story points,
-  sprint...) are not shown yet.
+- Comments are shown by `issue comments` / `issue context`, not by `issue get`.
+  Attachments, worklogs, history and custom fields (story points, sprint...) are not shown yet.
 - Attachments are not downloaded; table cell merges (colspan/rowspan) are ignored.
 - Markdown characters typed as plain text in Jira (e.g. `*word*`) are not escaped, so they
   render as Markdown formatting.
@@ -203,6 +208,48 @@ atl -f markdown jira issue get DEMO-123 > DEMO-123.md
   milliseconds, others as seconds; dates are shown in UTC.
 - HTTP 404 means *either* the issue does not exist *or* you are not allowed to see it; Jira
   does not say which.
+
+### `atl jira issue comments <KEY>` *(available)*
+
+Shows an issue's comments with their bodies converted to Markdown, oldest first.
+
+- **Concepts**: comments are the discussion on an issue; decisions and clarifications often
+  live there rather than in the description. A comment can be **restricted** to a group or
+  project role; such comments are returned only if you belong to it, and `visibility` names
+  the group/role.
+- **Jira web UI**: the *Activity* section of an issue, *Comments* tab.
+- **Endpoint**: `GET /rest/api/3/issue/{issueIdOrKey}/comment`
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-get>),
+  offset pagination (`startAt`, up to 100 per request), `orderBy=created` or `-created`.
+- **Permissions**: *Browse projects*; restricted comments need membership of the group/role.
+  **Scope**: `read:jira-work`.
+- **Options**: `--limit/-n` (default 100, max 1000), `--newest-first`. When more comments
+  exist, a note is printed on stderr.
+- **JSON output**: list of `{id, author, created, updated, visibility, body}`; `body` is
+  Markdown, `author` a display name, `visibility` `null` when unrestricted.
+- **Markdown output**: one `## author · created` heading per comment (plus `edited ...` and
+  `visible to ...` when relevant), then the body.
+
+```bash
+atl -f markdown jira issue comments DEMO-123
+atl -f json jira issue comments DEMO-123 --newest-first -n 5
+```
+
+### `atl jira issue context <KEY>` *(available)*
+
+Everything needed to understand an issue in one call, meant for coding agents: the fields,
+subtasks, links and description of `issue get` plus the comments of `issue comments`.
+
+- **Endpoints**: the two above (2+ requests).
+- **Options**: `--limit/-n` for comments (default 100).
+- **JSON output**: the `issue get` object with an extra `comments` key (list, as in
+  `issue comments`).
+- **Markdown output**: the `issue get` document followed by `## Comments`, one `###` heading
+  per comment. This is the recommended input for an agent:
+
+```bash
+atl -f markdown jira issue context DEMO-123
+```
 
 ### `atl jira search "<JQL>"` and `atl jira mine` *(available)*
 
@@ -244,7 +291,9 @@ index); the `reconcileIssues` option for read-after-write consistency is not exp
 
 ### Planned
 
-Issue comments, sprints/boards, story points (custom field discovered per site). *(planned)*
+Projects and field discovery (`projects`, `fields`), sprints/boards, story points (custom
+field discovered per site), issue history. Write commands (comment, transition, assign) are a
+later, separate phase. *(planned)*
 
 ## 5. HTTP behaviour *(available)*
 

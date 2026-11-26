@@ -55,7 +55,8 @@ def get_issue(
 
     ``extra_fields`` are additional field ids (e.g. ``customfield_10016``) to include.
     """
-    raw = api.get_issue(client, issue_id_or_key, _with_extra(ISSUE_FIELDS, extra_fields))
+    fields = _with_extra(ISSUE_FIELDS, extra_fields)
+    raw = api.get_issue(client, issue_id_or_key, fields, expand="transitions")
     return Issue.from_api(raw, site, extra_fields)
 
 

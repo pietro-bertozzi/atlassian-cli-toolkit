@@ -157,6 +157,7 @@ def test_issue_from_api_maps_fields() -> None:
                 "relation": "is blocked by",
             },
         ],
+        "transitions": [],
         "description": "Steps:\n\n- Open",
         "extra_fields": {},
     }

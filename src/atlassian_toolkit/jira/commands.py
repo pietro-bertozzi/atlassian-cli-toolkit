@@ -110,27 +110,6 @@ def _run_search(options: GlobalOptions, jql: str, limit: int, extra: tuple[str, 
         echo_err(f"Showing the first {limit} issues; more match. Use --limit to see more.")
 
 
-@issue_app.command("get")
-def issue_get(
-    ctx: typer.Context,
-    key: Annotated[str, typer.Argument(help="Issue key (e.g. DEMO-123) or numeric issue id.")],
-    field: FieldOption = None,
-) -> None:
-    """Show one issue: core fields, subtasks, links and the description as Markdown."""
-    options: GlobalOptions = ctx.obj
-    extra = _field_ids(field)
-    client, profile = _open_client(options)
-    with client:
-        issue = service.get_issue(client, key, profile.site, extra)
-    fmt = resolve_format(options.format)
-    if fmt is OutputFormat.MARKDOWN:
-        typer.echo(_issue_markdown(issue))
-    elif fmt is OutputFormat.TABLE:
-        emit(_table_record(issue.to_record()), fmt)
-    else:
-        emit(issue.to_record(), fmt)
-
-
 CommentsLimitOption = Annotated[
     int, typer.Option("--limit", "-n", min=1, max=1000, help="Maximum number of comments.")
 ]
@@ -140,50 +119,45 @@ NewestFirstOption = Annotated[
 COMMENT_COLUMNS = ("created", "author", "body")
 
 
-@issue_app.command("comments")
-def issue_comments(
+@issue_app.command("get")
+def issue_get(
     ctx: typer.Context,
     key: Annotated[str, typer.Argument(help="Issue key (e.g. DEMO-123) or numeric issue id.")],
+    comments: Annotated[
+        bool,
+        typer.Option(
+            "--comments",
+            help="Also include the comments: everything about the issue in one call "
+            "(recommended for coding agents, with -f markdown or -f json).",
+        ),
+    ] = False,
     limit: CommentsLimitOption = 100,
     newest_first: NewestFirstOption = False,
-) -> None:
-    """Show an issue's comments, converted to Markdown (oldest first)."""
-    options: GlobalOptions = ctx.obj
-    client, _ = _open_client(options)
-    with client:
-        comments, more = service.get_comments(client, key, limit, newest_first)
-    fmt = resolve_format(options.format)
-    if fmt is OutputFormat.MARKDOWN:
-        typer.echo(_comments_markdown([c.to_record() for c in comments], heading_level=2))
-    else:
-        emit([c.to_record() for c in comments], fmt, columns=COMMENT_COLUMNS)
-    _warn_more_comments(more, limit)
-
-
-@issue_app.command("context")
-def issue_context(
-    ctx: typer.Context,
-    key: Annotated[str, typer.Argument(help="Issue key (e.g. DEMO-123) or numeric issue id.")],
-    limit: CommentsLimitOption = 100,
     field: FieldOption = None,
 ) -> None:
-    """Everything needed to understand an issue in one call: fields, subtasks, links,
-    description and comments. Meant for coding agents (use -f json or -f markdown)."""
+    """Show one issue: fields, subtasks, links, possible status changes, description
+    (Markdown) and, with --comments, its comments."""
     options: GlobalOptions = ctx.obj
     extra = _field_ids(field)
     client, profile = _open_client(options)
+    more = False
+    comment_records: list[dict[str, Any]] | None = None
     with client:
         issue = service.get_issue(client, key, profile.site, extra)
-        comments, more = service.get_comments(client, issue.key or key, limit)
-    comment_records = [c.to_record() for c in comments]
+        if comments:
+            found, more = service.get_comments(client, issue.key or key, limit, newest_first)
+            comment_records = [c.to_record() for c in found]
     fmt = resolve_format(options.format)
     if fmt is OutputFormat.MARKDOWN:
         typer.echo(_issue_markdown(issue, comment_records))
     elif fmt is OutputFormat.TABLE:
         emit(_table_record(issue.to_record()), fmt)
-        emit(comment_records, fmt, columns=COMMENT_COLUMNS)
-    else:
+        if comment_records is not None:
+            emit(comment_records, fmt, columns=COMMENT_COLUMNS)
+    elif comment_records is not None:
         emit({**issue.to_record(), "comments": comment_records}, fmt)
+    else:
+        emit(issue.to_record(), fmt)
     _warn_more_comments(more, limit)
 
 
@@ -198,11 +172,18 @@ def _ref_line(ref: Mapping[str, Any]) -> str:
     return " ".join(f"{ref['key']}{status} {ref['summary']}".split())
 
 
+def _transition_line(transition: Mapping[str, Any]) -> str:
+    """One line for an available transition: ``Name -> Status`` (plus a screen note)."""
+    line = f"{transition['name']} -> {transition['to_status']}"
+    return line + " (has a screen)" if transition["has_screen"] else line
+
+
 def _table_record(record: dict[str, Any]) -> dict[str, Any]:
     """Make subtasks/links readable in a table: one ``KEY [status] summary`` line each."""
     display = _flatten_extra(record)
     display["subtasks"] = "\n".join(_ref_line(s) for s in record["subtasks"])
     display["links"] = "\n".join(f"{x['relation']} {_ref_line(x)}" for x in record["links"])
+    display["transitions"] = "\n".join(_transition_line(t) for t in record["transitions"])
     return display
 
 
@@ -215,6 +196,7 @@ def _issue_markdown(issue: Issue, comments: list[dict[str, Any]] | None = None) 
     description = record.pop("description")
     subtasks = record.pop("subtasks")
     links = record.pop("links")
+    transitions = record.pop("transitions")
     title = " ".join(f"{issue.key}: {issue.summary}".split())
     parts = [f"# {title}", render_markdown(record)]
     if description:
@@ -224,6 +206,9 @@ def _issue_markdown(issue: Issue, comments: list[dict[str, Any]] | None = None) 
     if links:
         lines = (f"- {x['relation']} {_ref_line(x)}" for x in links)
         parts.append("## Links\n\n" + "\n".join(lines))
+    if transitions:
+        lines = (f"- {_transition_line(t)}" for t in transitions)
+        parts.append("## Possible status changes\n\n" + "\n".join(lines))
     if comments is not None:
         parts.append("## Comments\n\n" + _comments_markdown(comments, heading_level=3))
     return "\n\n".join(parts)

@@ -268,7 +268,7 @@ def test_issue_get_json_output(logged_in: MemoryKeyring, mock_jira) -> None:  # 
         "key", "id", "url", "summary", "issue_type", "status", "status_category",
         "status_category_key", "priority",
         "project_key", "parent_key", "assignee", "reporter", "labels", "resolution", "created",
-        "updated", "due_date", "subtasks", "links", "description", "extra_fields",
+        "updated", "due_date", "subtasks", "links", "transitions", "description", "extra_fields",
     ]  # fmt: skip
     assert data["url"] == "https://example.atlassian.net/browse/DEMO-123"
     assert data["description"] == "## Goal\n\nMake | it work"
@@ -504,38 +504,42 @@ def jira_with_comments(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
 
 
 def test_comments_follow_start_at_pages(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
-    result = runner.invoke(app, ["-f", "json", "jira", "issue", "comments", "DEMO-123"])
+    args = ["-f", "json", "jira", "issue", "get", "DEMO-123", "--comments"]
+    result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
-    data = json.loads(result.stdout)
+    data = json.loads(result.stdout)["comments"]
     assert [c["body"] for c in data] == ["c1", "c2", "c3", "c4", "c5"]
     assert list(data[0]) == ["id", "author", "created", "updated", "visibility", "body"]
-    starts = [r.url.params["startAt"] for r in jira_with_comments]
-    assert starts == ["0", "2", "4"]
-    assert jira_with_comments[0].url.path == "/rest/api/3/issue/DEMO-123/comment"
-    assert jira_with_comments[0].url.params["orderBy"] == "created"
+    comment_requests = [r for r in jira_with_comments if r.url.path.endswith("/comment")]
+    assert [r.url.params["startAt"] for r in comment_requests] == ["0", "2", "4"]
+    assert comment_requests[0].url.path == "/rest/api/3/issue/DEMO-123/comment"
+    assert comment_requests[0].url.params["orderBy"] == "created"
     assert "more exist" not in result.stderr
 
 
 def test_comments_limit_and_newest_first(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
-    args = ["-f", "json", "jira", "issue", "comments", "DEMO-123", "-n", "3", "--newest-first"]
+    args = ["-f", "json", "jira", "issue", "get", "DEMO-123", "--comments", "-n", "3",
+            "--newest-first"]  # fmt: skip
     result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
-    assert len(json.loads(result.stdout)) == 3
-    assert jira_with_comments[0].url.params["orderBy"] == "-created"
+    assert len(json.loads(result.stdout)["comments"]) == 3
+    assert jira_with_comments[1].url.params["orderBy"] == "-created"
     assert "first 3 comments; more exist" in result.stderr
 
 
 def test_comments_markdown(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
-    result = runner.invoke(app, ["-f", "markdown", "jira", "issue", "comments", "DEMO-123"])
+    args = ["-f", "markdown", "jira", "issue", "get", "DEMO-123", "--comments"]
+    result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
-    assert result.stdout.startswith("## Alice Example · 2026-01-01T09:00:00.000+0100\n\nc1")
+    assert "## Comments\n\n### Alice Example · 2026-01-01T09:00:00.000+0100\n\nc1" in result.stdout
 
 
-def test_issue_context_json_has_issue_and_comments(
+def test_issue_get_comments_json_has_issue_and_comments(
     logged_in: MemoryKeyring,
     jira_with_comments,  # type: ignore[no-untyped-def]
 ) -> None:
-    result = runner.invoke(app, ["-f", "json", "jira", "issue", "context", "DEMO-123"])
+    args = ["-f", "json", "jira", "issue", "get", "DEMO-123", "--comments"]
+    result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
     data = json.loads(result.stdout)
     assert data["key"] == "DEMO-123"
@@ -544,8 +548,9 @@ def test_issue_context_json_has_issue_and_comments(
     assert list(data)[-1] == "comments"
 
 
-def test_issue_context_markdown_sections(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
-    result = runner.invoke(app, ["-f", "markdown", "jira", "issue", "context", "DEMO-123"])
+def test_issue_get_comments_markdown_sections(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
+    args = ["-f", "markdown", "jira", "issue", "get", "DEMO-123", "--comments"]
+    result = runner.invoke(app, args)
     assert result.exit_code == 0, result.output
     out = result.stdout
     assert out.startswith("# DEMO-123: Fix the login page")
@@ -728,3 +733,49 @@ def test_field_option_rejects_bad_ids(logged_in: MemoryKeyring) -> None:
     result = runner.invoke(app, ["jira", "issue", "get", "DEMO-1", "--field", "a b"])
     assert result.exit_code == 2
     assert "not a field id" in result.output
+
+
+def test_issue_get_without_comments_is_one_request(
+    logged_in: MemoryKeyring,
+    jira_with_comments,  # type: ignore[no-untyped-def]
+) -> None:
+    result = runner.invoke(app, ["-f", "json", "jira", "issue", "get", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    assert "comments" not in json.loads(result.stdout)
+    assert len(jira_with_comments) == 1
+
+
+def test_issue_get_comments_limit(logged_in: MemoryKeyring, jira_with_comments) -> None:  # type: ignore[no-untyped-def]
+    args = ["-f", "json", "jira", "issue", "get", "DEMO-123", "--comments", "-n", "3"]
+    result = runner.invoke(app, args)
+    assert result.exit_code == 0, result.output
+    assert len(json.loads(result.stdout)["comments"]) == 3
+    assert "more exist" in result.stderr
+
+
+@pytest.mark.parametrize("removed", ["context", "comments"])
+def test_folded_issue_commands_are_gone(logged_in: MemoryKeyring, removed: str) -> None:
+    assert runner.invoke(app, ["jira", "issue", removed, "DEMO-123"]).exit_code == 2
+
+
+def test_issue_get_shows_possible_status_changes(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    body = {**ISSUE_BODY, "transitions": [
+        {"id": "21", "name": "Send to review", "hasScreen": True,
+         "to": {"name": "In Review", "statusCategory": {"key": "indeterminate"}}}]}  # fmt: skip
+    seen = mock_jira(httpx.Response(200, json=body))
+    result = runner.invoke(app, ["-f", "json", "jira", "issue", "get", "DEMO-123"])
+    assert result.exit_code == 0, result.output
+    assert seen[0].url.params["expand"] == "transitions"
+    assert json.loads(result.stdout)["transitions"] == [
+        {
+            "id": "21",
+            "name": "Send to review",
+            "to_status": "In Review",
+            "to_status_category_key": "indeterminate",
+            "has_screen": True,
+        }
+    ]
+    md = runner.invoke(app, ["-f", "markdown", "jira", "issue", "get", "DEMO-123"]).stdout
+    assert "## Possible status changes\n\n- Send to review -> In Review (has a screen)" in md
+    table = runner.invoke(app, ["-f", "table", "jira", "issue", "get", "DEMO-123"]).stdout
+    assert "Send to review -> In Review" in table

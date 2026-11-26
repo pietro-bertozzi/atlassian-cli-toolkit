@@ -19,16 +19,22 @@ def get_myself(client: JiraClient) -> dict[str, Any]:
     return _expect_object(client.get("/rest/api/3/myself"), "/rest/api/3/myself")
 
 
-def get_issue(client: JiraClient, issue_id_or_key: str, fields: Sequence[str]) -> dict[str, Any]:
+def get_issue(
+    client: JiraClient, issue_id_or_key: str, fields: Sequence[str], expand: str | None = None
+) -> dict[str, Any]:
     """``GET /rest/api/3/issue/{issueIdOrKey}`` — one issue, limited to ``fields``.
 
     Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-get
     Required scope (scoped tokens): ``read:jira-work``. Jira answers 404 both when the issue
-    does not exist and when the user may not see it.
+    does not exist and when the user may not see it. ``expand="transitions"`` adds the
+    transitions available to the user (empty without *Transition issues*).
     """
     # Percent-encode the whole segment so user input cannot alter the request path.
     path = f"/rest/api/3/issue/{quote(issue_id_or_key, safe='')}"
-    return _expect_object(client.get(path, params={"fields": ",".join(fields)}), path)
+    params = {"fields": ",".join(fields)}
+    if expand:
+        params["expand"] = expand
+    return _expect_object(client.get(path, params=params), path)
 
 
 def _expect_object(data: Any, path: str) -> dict[str, Any]:

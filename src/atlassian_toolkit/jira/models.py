@@ -114,7 +114,8 @@ class Issue:
 
     ``status_category`` is the category name as Jira shows it (translated into the user's
     language); ``status_category_key`` is the language-independent key (e.g. ``new``).
-    ``subtasks`` and ``links`` list related issues; ``description`` is Markdown converted from
+    ``subtasks`` and ``links`` list related issues; ``transitions`` the status changes the user
+    can make now; ``description`` is Markdown converted from
     Jira's ADF rich text; ``extra_fields`` holds fields requested by id. Optional fields
     (priority, parent, assignee, ...) are None when unset or hidden from the user.
     """
@@ -139,6 +140,7 @@ class Issue:
     due_date: str | None
     subtasks: list[IssueRef]
     links: list[IssueLink]
+    transitions: list[Transition]
     description: str | None
     extra_fields: dict[str, Any]
 
@@ -176,6 +178,7 @@ class Issue:
             due_date=_str(fields.get("duedate")),
             subtasks=[IssueRef.from_api(item) for item in _mappings(fields.get("subtasks"))],
             links=_links(fields.get("issuelinks")),
+            transitions=[Transition.from_api(t) for t in _mappings(data.get("transitions"))],
             description=adf_to_markdown(fields.get("description")) or None,
             extra_fields=extract_fields(fields, extra_field_ids),
         )
@@ -302,6 +305,37 @@ class Field:
         needle = text.casefold()
         haystack = [self.name, self.id, *self.clause_names]
         return any(needle in value.casefold() for value in haystack)
+
+    def to_record(self) -> dict[str, Any]:
+        """Return the record rendered by the output layer."""
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class Transition:
+    """A workflow move available on an issue right now (e.g. "Start review" -> In Review).
+
+    ``has_screen``: Jira shows a form for this move; if that form has required fields, the CLI
+    cannot fill them and Jira rejects the transition.
+    """
+
+    id: str
+    name: str
+    to_status: str | None
+    to_status_category_key: str | None
+    has_screen: bool
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> Transition:
+        """Build from an ``IssueTransition`` object."""
+        target = _mapping(data.get("to"))
+        return cls(
+            id=_str(data.get("id")) or "",
+            name=_str(data.get("name")) or "",
+            to_status=_str(target.get("name")),
+            to_status_category_key=_nested(target, "statusCategory", "key"),
+            has_screen=data.get("hasScreen") is True,
+        )
 
     def to_record(self) -> dict[str, Any]:
         """Return the record rendered by the output layer."""

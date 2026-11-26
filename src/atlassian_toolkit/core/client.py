@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import logging
 import random
+import re
 import time
 from collections.abc import Callable
 from types import TracebackType
@@ -26,7 +27,7 @@ import httpx
 
 from atlassian_toolkit import __version__
 from atlassian_toolkit.core.config import JiraProfile
-from atlassian_toolkit.core.errors import ApiError, AuthError, NotFoundError
+from atlassian_toolkit.core.errors import ApiError, AuthError, ConfigError, NotFoundError
 
 logger = logging.getLogger("atl.http")
 
@@ -176,3 +177,39 @@ def _detail(response: httpx.Response) -> str:
     if len(text) > MAX_ERROR_DETAIL:
         text = text[:MAX_ERROR_DETAIL] + "..."
     return f" Jira says: {text}"
+
+
+CLOUD_ID_HELP = "https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/"
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
+
+
+def discover_cloud_id(site: str, *, transport: httpx.BaseTransport | None = None) -> str:
+    """Return the site's Cloud ID from ``https://<site>/_edge/tenant_info``.
+
+    Documented by Atlassian (see ``CLOUD_ID_HELP``): a plain GET that returns
+    ``{"cloudId": "..."}``. No credentials are sent. Raises ConfigError with a pointer to the
+    manual methods when the lookup fails.
+    """
+    url = f"https://{site}/_edge/tenant_info"
+    hint = f"Pass it with --cloud-id; how to find it: {CLOUD_ID_HELP}"
+    try:
+        with httpx.Client(
+            timeout=DEFAULT_TIMEOUT,
+            transport=transport,
+            headers={"Accept": "application/json", "User-Agent": f"atl/{__version__}"},
+        ) as http:
+            response = http.get(url)
+    except httpx.TransportError as exc:
+        raise ConfigError(
+            f"Could not look up the Cloud ID of {site} ({type(exc).__name__}). {hint}"
+        ) from exc
+    logger.debug("GET %s -> %s", url, response.status_code)
+    try:
+        cloud_id = response.json().get("cloudId") if response.status_code == 200 else None
+    except (ValueError, AttributeError):
+        cloud_id = None
+    if not isinstance(cloud_id, str) or not _UUID.fullmatch(cloud_id):
+        raise ConfigError(
+            f"Could not find the Cloud ID of {site} (HTTP {response.status_code}). {hint}"
+        )
+    return cloud_id

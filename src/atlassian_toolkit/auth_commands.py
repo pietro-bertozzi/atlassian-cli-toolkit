@@ -12,6 +12,7 @@ from typing import Annotated
 
 import typer
 
+from atlassian_toolkit.core.client import discover_cloud_id
 from atlassian_toolkit.core.config import (
     PROFILE_ENV_VAR,
     AuthMode,
@@ -49,7 +50,10 @@ def login(
         AuthMode, typer.Option("--mode", help="'classic' (unscoped token) or 'scoped'.")
     ] = AuthMode.CLASSIC,
     cloud_id: Annotated[
-        str | None, typer.Option("--cloud-id", help="Cloud ID of the site (scoped mode only).")
+        str | None,
+        typer.Option(
+            "--cloud-id", help="Cloud ID of the site (scoped mode; found automatically if omitted)."
+        ),
     ] = None,
     token_stdin: Annotated[
         bool, typer.Option("--token-stdin", help="Read the API token from stdin.")
@@ -68,16 +72,20 @@ def login(
         raise ConfigError("Use either --token-stdin or --token-file, not both.")
     if token_stdin and not (site and email):
         raise ConfigError("With --token-stdin, --site and --email are required (no prompting).")
-    if mode is AuthMode.SCOPED and not cloud_id and token_stdin:
-        raise ConfigError("With --token-stdin and --mode scoped, --cloud-id is required.")
 
     site = site or typer.prompt("Jira site (e.g. example.atlassian.net)")
     email = email or typer.prompt("Atlassian account email")
     if mode is AuthMode.SCOPED and not cloud_id:
-        cloud_id = typer.prompt("Cloud ID")
+        # Scoped tokens are called through api.atlassian.com/ex/jira/<cloudId>.
+        cloud_id = discover_cloud_id(normalize_site(site))
+        echo_err(f"Found the Cloud ID of {normalize_site(site)}: {cloud_id}")
 
+    name = options.profile or os.environ.get(PROFILE_ENV_VAR) or DEFAULT_PROFILE_NAME
     profile = JiraProfile(
-        site=normalize_site(site), email=email.strip(), mode=mode, cloud_id=cloud_id
+        site=normalize_site(site),
+        email=email.strip(),
+        mode=mode,
+        cloud_id=cloud_id,
     )
     if token_file is not None:
         token_file = token_file.expanduser()  # '~' is not expanded by every shell
@@ -95,7 +103,6 @@ def login(
             "Nothing was saved."
         )
 
-    name = options.profile or os.environ.get(PROFILE_ENV_VAR) or DEFAULT_PROFILE_NAME
     save_jira_token(name, token)  # fails before touching the config if no keyring
     config = load_config()
     config.jira[name] = profile

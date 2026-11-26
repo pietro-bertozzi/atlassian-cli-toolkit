@@ -8,9 +8,11 @@ import pytest
 from conftest import MemoryKeyring
 from typer.testing import CliRunner
 
+from atlassian_toolkit import auth_commands
 from atlassian_toolkit.cli import app
 from atlassian_toolkit.core.client import JiraClient
 from atlassian_toolkit.core.config import default_config_path
+from atlassian_toolkit.core.errors import ConfigError
 from atlassian_toolkit.jira import commands as jira_commands
 
 TOKEN = "fake-token-value"
@@ -90,9 +92,45 @@ def test_login_token_stdin_requires_site_and_email(memory_keyring: MemoryKeyring
     assert memory_keyring.store == {}
 
 
-def test_login_scoped_requires_cloud_id_with_stdin(memory_keyring: MemoryKeyring) -> None:
+CLOUD_ID = "11111111-2222-3333-4444-555555555555"
+
+
+def test_login_scoped_discovers_cloud_id(
+    memory_keyring: MemoryKeyring, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    asked: list[str] = []
+    monkeypatch.setattr(
+        auth_commands, "discover_cloud_id", lambda site: asked.append(site) or CLOUD_ID
+    )
+    result = runner.invoke(app, [*LOGIN, "--mode", "scoped", "--token-stdin"], input=TOKEN)
+    assert result.exit_code == 0, result.output
+    assert asked == ["example.atlassian.net"]
+    assert f'cloud_id = "{CLOUD_ID}"' in default_config_path().read_text()
+
+
+def test_login_scoped_discovery_failure_saves_nothing(
+    memory_keyring: MemoryKeyring, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail(site: str) -> str:
+        raise ConfigError("Could not find the Cloud ID. Pass it with --cloud-id")
+
+    monkeypatch.setattr(auth_commands, "discover_cloud_id", fail)
     result = runner.invoke(app, [*LOGIN, "--mode", "scoped", "--token-stdin"], input=TOKEN)
     assert result.exit_code == 3
+    assert "--cloud-id" in result.stderr
+    assert memory_keyring.store == {}
+    assert not default_config_path().exists()
+
+
+def test_login_scoped_explicit_cloud_id_skips_discovery(
+    memory_keyring: MemoryKeyring, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def boom(site: str) -> str:
+        raise AssertionError("must not be called")
+
+    monkeypatch.setattr(auth_commands, "discover_cloud_id", boom)
+    args = [*LOGIN, "--mode", "scoped", "--cloud-id", CLOUD_ID, "--token-stdin"]
+    assert runner.invoke(app, args, input=TOKEN).exit_code == 0
 
 
 def test_login_without_keyring_fails_and_writes_no_config(no_keyring: None) -> None:

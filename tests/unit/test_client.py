@@ -5,9 +5,9 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from atlassian_toolkit.core.client import JiraClient, base_url_for
+from atlassian_toolkit.core.client import JiraClient, base_url_for, discover_cloud_id
 from atlassian_toolkit.core.config import JiraProfile
-from atlassian_toolkit.core.errors import ApiError, AuthError, NotFoundError
+from atlassian_toolkit.core.errors import ApiError, AuthError, ConfigError, NotFoundError
 
 TOKEN = "fake-token-value"
 CLASSIC = JiraProfile(site="example.atlassian.net", email="alice@example.com")
@@ -190,3 +190,38 @@ def test_token_never_appears_in_logs_or_errors(caplog: pytest.LogCaptureFixture)
     assert "Authorization" not in caplog.text
     assert TOKEN not in str(info.value)
     assert caplog.text  # something was logged
+
+
+# --- cloud id discovery ----------------------------------------------------------------------
+
+CLOUD_ID = "11111111-2222-3333-4444-555555555555"
+
+
+def test_discover_cloud_id_reads_tenant_info_without_credentials() -> None:
+    handler, seen = sequence(httpx.Response(200, json={"cloudId": CLOUD_ID}))
+    assert discover_cloud_id("example.atlassian.net", transport=httpx.MockTransport(handler)) == (
+        CLOUD_ID
+    )
+    assert str(seen[0].url) == "https://example.atlassian.net/_edge/tenant_info"
+    assert "Authorization" not in seen[0].headers
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        httpx.Response(404),
+        httpx.Response(200, json={"cloudId": "not-a-uuid"}),
+        httpx.Response(200, json=["unexpected"]),
+        httpx.Response(200, text="<html>"),
+    ],
+)
+def test_discover_cloud_id_failures_point_to_the_docs(response: httpx.Response) -> None:
+    handler, _ = sequence(response)
+    with pytest.raises(ConfigError, match="--cloud-id"):
+        discover_cloud_id("example.atlassian.net", transport=httpx.MockTransport(handler))
+
+
+def test_discover_cloud_id_network_error() -> None:
+    handler, _ = sequence(httpx.ConnectError("boom"))
+    with pytest.raises(ConfigError, match="retrieve-my-atlassian-sites-cloud-id"):
+        discover_cloud_id("example.atlassian.net", transport=httpx.MockTransport(handler))

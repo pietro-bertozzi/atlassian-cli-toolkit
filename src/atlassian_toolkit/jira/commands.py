@@ -38,16 +38,6 @@ def _open_client(options: GlobalOptions) -> tuple[JiraClient, JiraProfile]:
     return JiraClient(profile, get_jira_token(name)), profile
 
 
-@app.command()
-def me(ctx: typer.Context) -> None:
-    """Show the Jira user the configured API token authenticates as."""
-    options: GlobalOptions = ctx.obj
-    client, _ = _open_client(options)
-    with client:
-        user = service.get_current_user(client)
-    emit(user.to_record(), resolve_format(options.format))
-
-
 SEARCH_COLUMNS = ("key", "status", "priority", "issue_type", "summary")
 LimitOption = Annotated[
     int, typer.Option("--limit", "-n", min=1, max=1000, help="Maximum number of issues.")

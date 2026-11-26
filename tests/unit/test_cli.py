@@ -58,6 +58,7 @@ def mock_jira(monkeypatch: pytest.MonkeyPatch) -> Callable[[httpx.Response], lis
             return JiraClient(profile, token, transport=httpx.MockTransport(handler))
 
         monkeypatch.setattr(jira_commands, "JiraClient", factory)
+        monkeypatch.setattr(auth_commands, "JiraClient", factory)
         return seen
 
     return install
@@ -169,55 +170,50 @@ def test_logout_removes_token_and_profile(logged_in: MemoryKeyring) -> None:
     assert runner.invoke(app, ["auth", "status"]).exit_code == 3
 
 
-def test_jira_me_json(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+def test_status_check_asks_jira_who_i_am(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
     seen = mock_jira(httpx.Response(200, json=ME_BODY))
-    result = runner.invoke(app, ["-f", "json", "jira", "me"])
+    result = runner.invoke(app, ["-f", "json", "auth", "status", "--check"])
     assert result.exit_code == 0, result.output
-    assert json.loads(result.stdout) == {
-        "account_id": "abc123",
-        "display_name": "Alice Example",
-        "email": "alice@example.com",
-        "active": True,
-        "time_zone": "Europe/Rome",
-        "account_type": "atlassian",
-    }
+    data = json.loads(result.stdout)
+    assert (data["check"], data["account_id"], data["display_name"]) == (
+        "ok",
+        "abc123",
+        "Alice Example",
+    )
     assert str(seen[0].url) == "https://example.atlassian.net/rest/api/3/myself"
+    assert TOKEN not in result.output
 
 
-def test_jira_me_defaults_to_json_when_not_a_tty(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
-    mock_jira(httpx.Response(200, json=ME_BODY))
-    result = runner.invoke(app, ["jira", "me"])
-    assert json.loads(result.stdout)["account_id"] == "abc123"
+def test_status_without_check_makes_no_request(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    seen = mock_jira(httpx.Response(200, json=ME_BODY))
+    data = json.loads(runner.invoke(app, ["-f", "json", "auth", "status"]).stdout)
+    assert "check" not in data
+    assert seen == []
 
 
-def test_jira_me_tolerates_hidden_fields(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
-    mock_jira(httpx.Response(200, json={"accountId": "abc123", "displayName": "A", "active": True}))
-    data = json.loads(runner.invoke(app, ["-f", "json", "jira", "me"]).stdout)
-    assert data["email"] is None
-    assert data["time_zone"] is None
-
-
-def test_jira_me_401_exits_4_with_message_on_stderr(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+def test_status_check_401_exits_4_with_message_on_stderr(
+    logged_in: MemoryKeyring, mock_jira
+) -> None:  # type: ignore[no-untyped-def]
     mock_jira(httpx.Response(401))
-    result = runner.invoke(app, ["jira", "me"])
+    result = runner.invoke(app, ["auth", "status", "--check"])
     assert result.exit_code == 4
     assert "expired or revoked" in result.stderr
     assert result.stdout == ""
     assert TOKEN not in result.output
 
 
-def test_jira_me_without_profile_exits_3(memory_keyring: MemoryKeyring) -> None:
-    assert runner.invoke(app, ["jira", "me"]).exit_code == 3
+def test_jira_me_command_is_gone(logged_in: MemoryKeyring) -> None:
+    assert runner.invoke(app, ["jira", "me"]).exit_code == 2
 
 
-def test_jira_me_uses_env_token_over_keyring(
+def test_status_check_uses_env_token_over_keyring(
     logged_in: MemoryKeyring,
     mock_jira,
     monkeypatch: pytest.MonkeyPatch,  # type: ignore[no-untyped-def]
 ) -> None:
     seen = mock_jira(httpx.Response(200, json=ME_BODY))
     monkeypatch.setenv("ATL_JIRA_API_TOKEN", "env-token")
-    runner.invoke(app, ["jira", "me"])
+    runner.invoke(app, ["auth", "status", "--check"])
     assert base64.b64decode(seen[0].headers["Authorization"].split()[1]) == (
         b"alice@example.com:env-token"
     )

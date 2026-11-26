@@ -13,8 +13,7 @@ from typer.testing import CliRunner
 
 from atlassian_toolkit.cli import app
 from atlassian_toolkit.core.client import JiraClient
-from atlassian_toolkit.jira import commands as jira_commands
-from atlassian_toolkit.jira import connect
+from atlassian_toolkit.jira import connect, write_commands
 
 TOKEN = "fake-token-value"
 LOGIN = ["auth", "login", "--site", "example.atlassian.net", "--email", "alice@example.com"]
@@ -114,7 +113,7 @@ def test_interactive_confirmation(
     jira,  # type: ignore[no-untyped-def]
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(jira_commands, "_is_interactive", lambda: True)
+    monkeypatch.setattr(write_commands, "_is_interactive", lambda: True)
     args = ["jira", "issue", "comment", "DEMO-1", "--body", "hi"]
     refused = runner.invoke(app, args, input="n\n")
     assert refused.exit_code == 2

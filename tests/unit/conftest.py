@@ -3,6 +3,7 @@
 from collections.abc import Iterator
 from pathlib import Path
 
+import httpx
 import keyring
 import keyring.errors
 import pytest
@@ -38,6 +39,19 @@ def _isolated_environment(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> No
     monkeypatch.delenv("ATL_JIRA_API_TOKEN", raising=False)
     monkeypatch.delenv("ATL_PROFILE", raising=False)
     monkeypatch.setenv("ATL_CONFIG_DIR", str(tmp_path / "config"))
+
+
+@pytest.fixture(autouse=True)
+def _no_real_network(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unit tests must never touch the network: fail loudly if a real HTTP request is made.
+
+    Tests use ``httpx.MockTransport``; only the real transport is blocked.
+    """
+
+    def refuse(self, request):  # type: ignore[no-untyped-def]
+        raise AssertionError(f"Unit test tried to reach the network: {request.url}")
+
+    monkeypatch.setattr(httpx.HTTPTransport, "handle_request", refuse)
 
 
 @pytest.fixture

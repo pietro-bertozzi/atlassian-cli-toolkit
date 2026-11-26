@@ -4,23 +4,25 @@ This guide is for coding agents (Claude Code and similar) and for the people who
 `atl` gives an agent read-only access to Jira Cloud through shell commands, so it can look up
 the ticket it is working on without the user copying text around.
 
-A ready-made Claude Code skill with the same instructions is in
-[`.claude/skills/atl-jira/SKILL.md`](../.claude/skills/atl-jira/SKILL.md).
+A ready-made Claude Code skill with the same instructions ships with `atl`
+([source](../src/atlassian_toolkit/skills/atl-jira/SKILL.md)); `atl setup claude-skill`
+installs it.
 
 ## 1. Setup (once, by a human)
 
-1. Install `atl` so it is on `PATH` for every project, not only inside this repository:
+1. Install `atl` so it is on `PATH` for every project (see [releasing.md](releasing.md)):
 
    ```bash
-   uv tool install --editable <path-to>/atlassian-cli-toolkit
+   uv tool install git+https://github.com/pietro-bertozzi/atlassian-cli-toolkit@v0.1.0
    ```
 
    Inside this repository `uv run atl ...` also works.
 2. Log in once (see [jira.md](jira.md), `atl auth login`). The API token goes to the OS
    keyring; agents never need to see it.
 3. Check: `atl -f json jira me` must exit with `0`.
-4. Optional, for Claude Code in other projects: copy `.claude/skills/atl-jira/` to
-   `~/.claude/skills/atl-jira/` (user-level skills apply to all your projects).
+4. For Claude Code: `atl setup claude-skill` installs the `atl-jira` skill in
+   `~/.claude/skills/` (user level: all your projects). Re-run it after upgrading `atl`; it
+   refuses to overwrite a skill you edited unless you pass `--force`.
 
 ## 2. Rules for agents
 

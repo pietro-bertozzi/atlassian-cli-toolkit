@@ -7,7 +7,7 @@ from typing import Annotated
 import typer
 from typer.core import TyperGroup
 
-from atlassian_toolkit import __version__, auth_commands
+from atlassian_toolkit import __version__, auth_commands, setup_commands
 from atlassian_toolkit.core.context import GlobalOptions
 from atlassian_toolkit.core.errors import AtlError
 from atlassian_toolkit.core.output import OutputFormat, configure_stdio, echo_err
@@ -36,6 +36,7 @@ app = typer.Typer(
 )
 app.add_typer(auth_commands.app, name="auth")
 app.add_typer(jira_commands.app, name="jira")
+app.add_typer(setup_commands.app, name="setup")
 
 
 def _version_callback(value: bool) -> None:

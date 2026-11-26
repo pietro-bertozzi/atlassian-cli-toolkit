@@ -11,7 +11,7 @@ API token is in the OS keyring and you never need it.
 
 If `atl` is not found, it is not installed on `PATH`: inside the atlassian-cli-toolkit
 repository use `uv run atl ...`; elsewhere ask the user to run
-`uv tool install --editable <path-to>/atlassian-cli-toolkit`.
+`uv tool install git+https://github.com/pietro-bertozzi/atlassian-cli-toolkit@<version>`.
 
 ## Rules
 

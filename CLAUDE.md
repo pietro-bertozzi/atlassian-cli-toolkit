@@ -107,6 +107,8 @@ assume a specific OS.
 src/atlassian_toolkit/
 ├── cli.py            # Typer root app; wires sub-apps; no business logic
 ├── auth_commands.py  # `atl auth ...` (login/status/logout); shared across products
+├── setup_commands.py # `atl setup ...` (install the packaged Claude Code skill)
+├── skills/atl-jira/SKILL.md # the Claude Code skill (single source; shipped in the wheel)
 ├── core/
 │   ├── config.py     # profiles, config file location, load/save
 │   ├── context.py    # global CLI options (--profile/--format/--verbose) passed to sub-commands

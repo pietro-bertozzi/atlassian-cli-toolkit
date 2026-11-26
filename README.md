@@ -7,11 +7,15 @@ APIs. It is meant for humans in a terminal and for coding agents calling shell c
 
 ## Install
 
+Use `atl` in any project (needs [uv](https://docs.astral.sh/uv/)):
+
 ```bash
-uv sync            # development environment
-# or
-pip install .      # plain pip works too
+uv tool install git+https://github.com/pietro-bertozzi/atlassian-cli-toolkit@v0.1.0
+atl setup claude-skill   # optional: teach Claude Code to use atl in all your projects
 ```
+
+Upgrading and releases: [docs/releasing.md](docs/releasing.md). For development, clone the
+repository and run `uv sync` (plain `pip install .` works too).
 
 ## Configure and first commands
 
@@ -31,8 +35,9 @@ The token is stored in your OS keyring, never in a config file. On headless mach
 ## Use from coding agents
 
 `atl` is built to be called by coding agents such as Claude Code. See
-[docs/agents.md](docs/agents.md) for setup, rules and recipes; a ready-made Claude Code skill
-is in [.claude/skills/atl-jira/SKILL.md](.claude/skills/atl-jira/SKILL.md).
+[docs/agents.md](docs/agents.md) for setup, rules and recipes. `atl setup claude-skill`
+installs a Claude Code skill (`~/.claude/skills/atl-jira`) so Claude uses `atl` in every
+project.
 
 ## Discover commands
 

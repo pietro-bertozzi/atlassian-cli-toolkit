@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from atlassian_toolkit.jira.adf import MAX_DEPTH, adf_to_markdown
+from atlassian_toolkit.jira.adf_read import MAX_DEPTH, adf_to_markdown
 
 
 def doc(*content: dict[str, Any]) -> dict[str, Any]:

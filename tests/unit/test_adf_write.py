@@ -2,7 +2,7 @@ from typing import Any
 
 import pytest
 
-from atlassian_toolkit.jira.adf import adf_to_markdown
+from atlassian_toolkit.jira.adf_read import adf_to_markdown
 from atlassian_toolkit.jira.adf_write import markdown_to_adf
 
 

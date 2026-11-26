@@ -7,7 +7,7 @@ from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import quote
 
-from atlassian_toolkit.jira.adf import adf_to_markdown
+from atlassian_toolkit.jira.adf_read import adf_to_markdown
 
 
 @dataclass(frozen=True)

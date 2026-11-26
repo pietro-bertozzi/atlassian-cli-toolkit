@@ -241,9 +241,9 @@ def _try_span(text: str, i: int, marks: tuple[Mark, ...]) -> tuple[list[Node], i
     if char in "*_":
         if char == "_" and i > 0 and text[i - 1].isalnum():
             return None  # snake_case words are not emphasis
-        end = _closing_single(text, i, char)
-        if end is not None:
-            return _inline(text[i + 1 : end], (*marks, {"type": "em"})), end + 1
+        close = _closing_single(text, i, char)
+        if close is not None:
+            return _inline(text[i + 1 : close], (*marks, {"type": "em"})), close + 1
     return None
 
 

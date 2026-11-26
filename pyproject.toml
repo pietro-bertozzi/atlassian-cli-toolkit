@@ -23,6 +23,7 @@ atl = "atlassian_toolkit.cli:app"
 
 [dependency-groups]
 dev = [
+    "mypy>=1.11",
     "pytest>=8",
     "ruff>=0.6",
 ]
@@ -39,6 +40,12 @@ addopts = "-m 'not integration'"
 markers = [
     "integration: tests that hit a real Atlassian instance; run only when explicitly enabled",
 ]
+
+[tool.mypy]
+# Type hints are required everywhere (CLAUDE.md §8); this makes CI enforce them.
+files = ["src"]
+python_version = "3.11"
+strict = true
 
 [tool.ruff]
 line-length = 100

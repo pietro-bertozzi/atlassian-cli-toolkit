@@ -1,4 +1,4 @@
-# Lint and unit tests on Windows, macOS and Linux (CLAUDE.md §5b: the toolkit must behave the
+# Lint, type check and unit tests on Windows, macOS and Linux (CLAUDE.md §5b: the toolkit must behave the
 # same on every OS). No secrets and no network: unit tests mock HTTP and the keyring.
 name: CI
 
@@ -30,6 +30,8 @@ jobs:
         run: uv run ruff format --check
       - name: Lint
         run: uv run ruff check
+      - name: Type check
+        run: uv run mypy
       - name: Unit tests
         run: uv run pytest
 

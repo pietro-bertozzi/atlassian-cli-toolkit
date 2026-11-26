@@ -88,7 +88,7 @@ Atlassian Data Center / Server is out of scope.
 - Python >= 3.11, `src/` layout, packaging via `pyproject.toml` (hatchling backend).
 - Runtime deps: `typer` (CLI), `httpx` (HTTP), `keyring` (credentials), `rich` (human output).
   Any new dependency must be justified and agreed first.
-- Dev deps: `pytest`, `ruff`. HTTP is mocked with `httpx.MockTransport` (no extra mock library
+- Dev deps: `pytest`, `ruff`, `mypy` (strict, on `src/`). HTTP is mocked with `httpx.MockTransport` (no extra mock library
   unless agreed).
 - Config format: TOML, read with stdlib `tomllib`.
 - Environment and lockfile managed with `uv` (`uv sync`, `uv run pytest`, `uv run ruff check`).
@@ -105,7 +105,7 @@ assume a specific OS.
   message pointing to the `ATL_JIRA_API_TOKEN` fallback; never fall back to plaintext files.
 - No shell-specific behaviour, no reliance on POSIX-only modules, UTF-8 output everywhere.
 - Tests must not depend on the host OS (use `tmp_path`, mock keyring).
-- CI (`.github/workflows/ci.yml`) runs format check, lint and unit tests on all three OSes;
+- CI (`.github/workflows/ci.yml`) runs format check, lint, type check and unit tests on all three OSes;
   a change is done only when CI is green everywhere.
 
 ## 6. Architecture
@@ -153,7 +153,7 @@ Files are created only when the feature that needs them is implemented.
 - Type hints everywhere; docstrings on public functions and anything non-obvious.
 - Small functions, single responsibility, explicit error handling (no bare `except`).
 - No duplication, but no premature abstraction either.
-- Before proposing a commit: `ruff format`, `ruff check`, `pytest` must all pass.
+- Before proposing a commit: `ruff format`, `ruff check`, `mypy`, `pytest` must all pass.
 - Unit tests live in `tests/unit/` and never hit the network. Real-instance tests live in
   `tests/integration/`, are marked `integration`, and run only when explicitly enabled.
 

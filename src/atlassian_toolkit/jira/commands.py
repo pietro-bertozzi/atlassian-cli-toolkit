@@ -1,6 +1,7 @@
 """``atl jira ...`` commands: parse arguments, call the service, render."""
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 from typing import Annotated, Any
 
 import typer
@@ -51,6 +52,40 @@ SEARCH_COLUMNS = ("key", "status", "priority", "issue_type", "summary")
 LimitOption = Annotated[
     int, typer.Option("--limit", "-n", min=1, max=1000, help="Maximum number of issues.")
 ]
+FieldOption = Annotated[
+    list[str] | None,
+    typer.Option(
+        "--field",
+        help="Extra field id to include, e.g. customfield_10016 (find ids with 'atl jira fields'). "
+        "Repeat or comma-separate for several.",
+    ),
+]
+_FIELD_ID = re.compile(r"[A-Za-z][A-Za-z0-9_.-]*")
+
+
+def _field_ids(values: Sequence[str] | None) -> tuple[str, ...]:
+    """Split, validate and de-duplicate ``--field`` values (order kept)."""
+    ids: list[str] = []
+    for value in values or ():
+        for part in value.split(","):
+            field_id = part.strip()
+            if not _FIELD_ID.fullmatch(field_id):
+                raise typer.BadParameter(
+                    f"{field_id!r} is not a field id (e.g. customfield_10016). "
+                    "Find ids with 'atl jira fields'.",
+                    param_hint="--field",
+                )
+            if field_id not in ids:
+                ids.append(field_id)
+    return tuple(ids)
+
+
+def _flatten_extra(record: Mapping[str, Any]) -> dict[str, Any]:
+    """For table/Markdown: show each requested field as its own key (JSON keeps them nested)."""
+    flat = dict(record)
+    for field_id, value in flat.pop("extra_fields").items():
+        flat.setdefault(field_id, value)
+    return flat
 
 
 @app.command()
@@ -58,26 +93,29 @@ def search(
     ctx: typer.Context,
     jql: Annotated[str, typer.Argument(help='JQL query, e.g. "project = DEMO AND status = Open".')],
     limit: LimitOption = 50,
+    field: FieldOption = None,
 ) -> None:
     """Search issues with JQL (Jira Query Language)."""
-    _run_search(ctx.obj, jql, limit)
+    _run_search(ctx.obj, jql, limit, _field_ids(field))
 
 
 @app.command()
-def mine(ctx: typer.Context, limit: LimitOption = 50) -> None:
+def mine(ctx: typer.Context, limit: LimitOption = 50, field: FieldOption = None) -> None:
     """List your open issues (assigned to you, not done), most recently updated first."""
-    _run_search(ctx.obj, service.MY_OPEN_ISSUES_JQL, limit)
+    _run_search(ctx.obj, service.MY_OPEN_ISSUES_JQL, limit, _field_ids(field))
 
 
-def _run_search(options: GlobalOptions, jql: str, limit: int) -> None:
+def _run_search(options: GlobalOptions, jql: str, limit: int, extra: tuple[str, ...]) -> None:
     client, profile = _open_client(options)
     with client:
-        issues, more = service.search_issues(client, jql, profile.site, limit)
-    emit(
-        [issue.to_record() for issue in issues],
-        resolve_format(options.format),
-        columns=SEARCH_COLUMNS,
-    )
+        issues, more = service.search_issues(client, jql, profile.site, limit, extra)
+    fmt = resolve_format(options.format)
+    records = [issue.to_record() for issue in issues]
+    if fmt is OutputFormat.JSON:
+        emit(records, fmt)
+    else:
+        columns = (*SEARCH_COLUMNS, *(f for f in extra if f not in SEARCH_COLUMNS))
+        emit([_flatten_extra(r) for r in records], fmt, columns=columns)
     if more:
         echo_err(f"Showing the first {limit} issues; more match. Use --limit to see more.")
 
@@ -86,12 +124,14 @@ def _run_search(options: GlobalOptions, jql: str, limit: int) -> None:
 def issue_get(
     ctx: typer.Context,
     key: Annotated[str, typer.Argument(help="Issue key (e.g. DEMO-123) or numeric issue id.")],
+    field: FieldOption = None,
 ) -> None:
     """Show one issue: core fields, subtasks, links and the description as Markdown."""
     options: GlobalOptions = ctx.obj
+    extra = _field_ids(field)
     client, profile = _open_client(options)
     with client:
-        issue = service.get_issue(client, key, profile.site)
+        issue = service.get_issue(client, key, profile.site, extra)
     fmt = resolve_format(options.format)
     if fmt is OutputFormat.MARKDOWN:
         typer.echo(_issue_markdown(issue))
@@ -135,13 +175,15 @@ def issue_context(
     ctx: typer.Context,
     key: Annotated[str, typer.Argument(help="Issue key (e.g. DEMO-123) or numeric issue id.")],
     limit: CommentsLimitOption = 100,
+    field: FieldOption = None,
 ) -> None:
     """Everything needed to understand an issue in one call: fields, subtasks, links,
     description and comments. Meant for coding agents (use -f json or -f markdown)."""
     options: GlobalOptions = ctx.obj
+    extra = _field_ids(field)
     client, profile = _open_client(options)
     with client:
-        issue = service.get_issue(client, key, profile.site)
+        issue = service.get_issue(client, key, profile.site, extra)
         comments, more = service.get_comments(client, issue.key or key, limit)
     comment_records = [c.to_record() for c in comments]
     fmt = resolve_format(options.format)
@@ -168,7 +210,7 @@ def _ref_line(ref: Mapping[str, Any]) -> str:
 
 def _table_record(record: dict[str, Any]) -> dict[str, Any]:
     """Make subtasks/links readable in a table: one ``KEY [status] summary`` line each."""
-    display = dict(record)
+    display = _flatten_extra(record)
     display["subtasks"] = "\n".join(_ref_line(s) for s in record["subtasks"])
     display["links"] = "\n".join(f"{x['relation']} {_ref_line(x)}" for x in record["links"])
     return display
@@ -179,7 +221,7 @@ def _issue_markdown(issue: Issue, comments: list[dict[str, Any]] | None = None) 
 
     Sections: title, metadata list, description, subtasks, links and (when given) comments.
     """
-    record = issue.to_record()
+    record = _flatten_extra(issue.to_record())
     description = record.pop("description")
     subtasks = record.pop("subtasks")
     links = record.pop("links")

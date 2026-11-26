@@ -1,5 +1,13 @@
+import pytest
+
 from atlassian_toolkit.core.config import normalize_site
-from atlassian_toolkit.jira.models import Comment, CurrentUser, Issue
+from atlassian_toolkit.jira.models import (
+    Comment,
+    CurrentUser,
+    Issue,
+    extract_fields,
+    simplify_field_value,
+)
 
 
 def test_from_api_maps_fields() -> None:
@@ -150,6 +158,7 @@ def test_issue_from_api_maps_fields() -> None:
             },
         ],
         "description": "Steps:\n\n- Open",
+        "extra_fields": {},
     }
 
 
@@ -206,3 +215,34 @@ def test_comment_from_api_tolerates_missing_fields() -> None:
     assert comment.author is None
     assert comment.visibility is None
     assert comment.body == ""
+
+
+@pytest.mark.parametrize(
+    ("raw", "expected"),
+    [
+        (None, None),
+        (3.0, 3.0),
+        ("2026-02-01", "2026-02-01"),
+        ({"value": "High", "id": "1"}, "High"),
+        ({"value": "Europe", "child": {"value": "Italy"}}, "Europe / Italy"),
+        ({"displayName": "Alice Example", "accountId": "abc"}, "Alice Example"),
+        ([{"id": 1, "name": "Sprint 4", "state": "active"}], ["Sprint 4"]),
+        (
+            {"type": "doc", "version": 1, "content": [
+                {"type": "paragraph", "content": [{"type": "text", "text": "rich"}]}]},
+            "rich",
+        ),
+        ({"self": "https://x", "count": 2}, {"count": 2}),
+        (["a", 1], ["a", 1]),
+    ],
+)  # fmt: skip
+def test_simplify_field_value(raw: object, expected: object) -> None:
+    assert simplify_field_value(raw) == expected
+
+
+def test_extract_fields_missing_is_none() -> None:
+    fields = {"customfield_10016": 5}
+    assert extract_fields(fields, ["customfield_10016", "customfield_99999"]) == {
+        "customfield_10016": 5,
+        "customfield_99999": None,
+    }

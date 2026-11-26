@@ -234,7 +234,7 @@ def test_issue_get_json_output(logged_in: MemoryKeyring, mock_jira) -> None:  # 
         "key", "id", "url", "summary", "issue_type", "status", "status_category",
         "status_category_key", "priority",
         "project_key", "parent_key", "assignee", "reporter", "labels", "resolution", "created",
-        "updated", "due_date", "subtasks", "links", "description",
+        "updated", "due_date", "subtasks", "links", "description", "extra_fields",
     ]  # fmt: skip
     assert data["url"] == "https://example.atlassian.net/browse/DEMO-123"
     assert data["description"] == "## Goal\n\nMake | it work"
@@ -375,7 +375,7 @@ def test_search_follows_next_page_token(logged_in: MemoryKeyring, paged_jira) ->
     assert list(data[0]) == [
         "key", "summary", "status", "status_category", "status_category_key", "issue_type",
         "priority", "assignee",
-        "updated", "url",
+        "updated", "url", "extra_fields",
     ]  # fmt: skip
     assert data[0]["url"] == "https://example.atlassian.net/browse/DEMO-1"
     assert data[0]["status_category_key"] == "new"
@@ -659,3 +659,38 @@ def test_fields_custom_only_and_sorted(logged_in: MemoryKeyring, mock_jira) -> N
 def test_fields_unexpected_response_exits_6(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
     mock_jira(httpx.Response(200, json={"not": "a list"}))
     assert runner.invoke(app, ["jira", "fields"]).exit_code == 6
+
+
+def test_issue_get_extra_fields(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    body = json.loads(json.dumps(ISSUE_BODY))
+    body["fields"]["customfield_10016"] = 5
+    body["fields"]["customfield_10020"] = [{"id": 1, "name": "Sprint 4", "state": "active"}]
+    seen = mock_jira(httpx.Response(200, json=body))
+    args = ["-f", "json", "jira", "issue", "get", "DEMO-123"]
+    result = runner.invoke(app, [*args, "--field", "customfield_10016,customfield_10020"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout)["extra_fields"] == {
+        "customfield_10016": 5,
+        "customfield_10020": ["Sprint 4"],
+    }
+    fields = seen[0].url.params["fields"].split(",")
+    assert fields[-2:] == ["customfield_10016", "customfield_10020"]
+    md = runner.invoke(app, ["-f", "markdown", *args[2:], "--field", "customfield_10016"])
+    assert "- **customfield_10016**: 5" in md.stdout
+    assert "extra_fields" not in md.stdout
+
+
+def test_search_extra_field_becomes_table_column(logged_in: MemoryKeyring, paged_jira) -> None:  # type: ignore[no-untyped-def]
+    args = ["jira", "search", "project = DEMO", "--field", "customfield_10016"]
+    table = runner.invoke(app, ["-f", "table", *args])
+    assert table.exit_code == 0, table.output
+    assert "customfield_10016" in table.stdout
+    data = json.loads(runner.invoke(app, ["-f", "json", *args]).stdout)
+    assert data[0]["extra_fields"] == {"customfield_10016": None}
+    assert "customfield_10016" in paged_jira[0].url.params["fields"].split(",")
+
+
+def test_field_option_rejects_bad_ids(logged_in: MemoryKeyring) -> None:
+    result = runner.invoke(app, ["jira", "issue", "get", "DEMO-1", "--field", "a b"])
+    assert result.exit_code == 2
+    assert "not a field id" in result.output

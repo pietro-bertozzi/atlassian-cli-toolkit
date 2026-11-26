@@ -40,7 +40,9 @@ pointing to the environment variable; there is no plaintext-file fallback.
 
 ## 3. Global options *(available)*
 
-Placed **before** the command: `atl -f json jira me`.
+Placed **before** the command: `atl -f json jira me`. With `-f table` and output that is
+not a terminal (a pipe or a file), tables are 160 characters wide and column headers are never
+shortened.
 
 | Option              | Meaning                                                       |
 | ------------------- | ------------------------------------------------------------- |
@@ -161,15 +163,16 @@ ticket from the terminal or to hand a ticket to a coding agent as clean text.
 - **Jira web UI**: open `https://<site>/browse/DEMO-123` (the `url` key in the output).
 - **Endpoint**: `GET /rest/api/3/issue/{issueIdOrKey}` with an explicit `fields` list
   (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-get>).
-  Only the fields below are requested; custom fields are not.
+  Only the fields below are requested; other fields (e.g. custom fields such as story
+  points) only when asked for with `--field` (see "Extra fields" below).
 - **Permissions**: *Browse projects* on the issue's project, and the issue security level if
   the project uses issue security. **Scope** (scoped tokens): `read:jira-work`.
 - **JSON output** (stable keys): `key`, `id`, `url`, `summary`, `issue_type`, `status`,
   `status_category`, `status_category_key`, `priority`, `project_key`, `parent_key`, `assignee`, `reporter`
   (display names), `labels` (list), `resolution`, `created`, `updated` (ISO 8601 as returned
-  by Jira), `due_date` (`YYYY-MM-DD`), `subtasks`, `links`, `description` (Markdown).
-  Optional values are `null` when unset; `subtasks` and `links` are empty lists when there are
-  none.
+  by Jira), `due_date` (`YYYY-MM-DD`), `subtasks`, `links`, `description` (Markdown),
+  `extra_fields` (object, `{}` unless `--field` is used). Optional values are `null` when
+  unset; `subtasks` and `links` are empty lists when there are none.
   - `subtasks`: list of `{key, summary, status, status_category_key, issue_type}`.
   - `links`: the same keys plus `relation`, Jira's wording for the link seen from this issue,
     e.g. `blocks` (this issue blocks `key`) or `is blocked by` (`key` blocks this issue).
@@ -241,7 +244,7 @@ Everything needed to understand an issue in one call, meant for coding agents: t
 subtasks, links and description of `issue get` plus the comments of `issue comments`.
 
 - **Endpoints**: the two above (2+ requests).
-- **Options**: `--limit/-n` for comments (default 100).
+- **Options**: `--limit/-n` for comments (default 100), `--field` (see "Extra fields").
 - **JSON output**: the `issue get` object with an extra `comments` key (list, as in
   `issue comments`).
 - **Markdown output**: the `issue get` document followed by `## Comments`, one `###` heading
@@ -274,12 +277,12 @@ Lists issues matching a query. `mine` is a shortcut for your open work.
   issues per request). The old `/rest/api/3/search` endpoint is not used.
 - `mine` runs `assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC`.
 - **Permissions**: only issues you can browse are returned. **Scope**: `read:jira-work`.
-- **Options**: `--limit/-n` (default 50, max 1000). When more issues match, a note is printed
-  on stderr; stdout stays valid JSON.
+- **Options**: `--limit/-n` (default 50, max 1000), `--field` (see "Extra fields"). When
+  more issues match, a note is printed on stderr; stdout stays valid JSON.
 - **JSON output**: a list of objects with the stable keys `key`, `summary`, `status`,
   `status_category`, `status_category_key`, `issue_type`, `priority`, `assignee`, `updated`,
-  `url`. The table and Markdown formats show `key`, `status`, `priority`, `issue_type`,
-  `summary`. No description (use `issue get` for that).
+  `url`, `extra_fields`. The table and Markdown formats show `key`, `status`, `priority`,
+  `issue_type`, `summary`, plus one column per `--field`. No description (use `issue get`).
 
 ```bash
 atl jira mine
@@ -345,10 +348,36 @@ atl -f json jira fields --custom
 **Limitation**: on a site tested so far, a team-managed project's fields did not report a
 `scope`; do not rely on `scope_project_id` alone to tell which project uses a field.
 
+### Extra fields: `--field` *(available)*
+
+`issue get`, `issue context`, `search` and `mine` accept `--field <id>` to include any other
+field, typically a custom field such as story points. Repeat the option or separate ids with
+commas. Unknown ids are not an error: Jira just omits them and the value is `null`.
+
+1. Find the id once per site: `atl jira fields --search "story point"` (for example
+   `customfield_10016`; the number differs per site, and company- and team-managed projects
+   may use different fields).
+2. Use it:
+
+```bash
+atl jira mine --field customfield_10016
+atl -f json jira issue context DEMO-123 --field customfield_10016,customfield_10020
+```
+
+- **JSON**: values go in `extra_fields`, keyed by id: `{"customfield_10016": 5.0}`.
+- **Table / Markdown**: each requested field is shown as its own key or column.
+- **Values are simplified**: numbers, strings and dates are kept; rich text (ADF) becomes
+  Markdown; an object becomes its label (an option's value, a user's display name, or a
+  `name`/`key`, e.g. a sprint becomes its name; cascading options become `parent / child`);
+  lists are simplified item by item; other objects are kept without link/avatar noise. The
+  rest of the raw object (e.g. a sprint's state and dates) is not shown.
+- Field ids must look like `customfield_10016` or `fixVersions`; anything else is a usage
+  error (exit 2).
+
 ### Planned
 
-Sprints/boards, story points (using the field found with `atl jira fields`), issue history. Write commands (comment, transition, assign) are a
-later, separate phase. *(planned)*
+Sprints/boards, issue history. Write commands (comment, transition, assign) are a later,
+separate phase. *(planned)*
 
 ## 5. HTTP behaviour *(available)*
 

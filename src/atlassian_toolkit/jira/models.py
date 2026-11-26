@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass
 from typing import Any
 from urllib.parse import quote
@@ -115,7 +115,7 @@ class Issue:
     ``status_category`` is the category name as Jira shows it (translated into the user's
     language); ``status_category_key`` is the language-independent key (e.g. ``new``).
     ``subtasks`` and ``links`` list related issues; ``description`` is Markdown converted from
-    Jira's ADF rich text. Optional fields
+    Jira's ADF rich text; ``extra_fields`` holds fields requested by id. Optional fields
     (priority, parent, assignee, ...) are None when unset or hidden from the user.
     """
 
@@ -140,10 +140,17 @@ class Issue:
     subtasks: list[IssueRef]
     links: list[IssueLink]
     description: str | None
+    extra_fields: dict[str, Any]
 
     @classmethod
-    def from_api(cls, data: Mapping[str, Any], site: str) -> Issue:
-        """Build from the raw ``IssueBean``; ``site`` (e.g. example.atlassian.net) makes ``url``."""
+    def from_api(
+        cls, data: Mapping[str, Any], site: str, extra_field_ids: Sequence[str] = ()
+    ) -> Issue:
+        """Build from the raw ``IssueBean``; ``site`` (e.g. example.atlassian.net) makes ``url``.
+
+        ``extra_field_ids`` are additional fields requested with ``--field``; their values end
+        up in ``extra_fields`` (see :func:`simplify_field_value`).
+        """
         fields = _mapping(data.get("fields"))
         key = _str(data.get("key")) or ""
         status = _mapping(fields.get("status"))
@@ -170,6 +177,7 @@ class Issue:
             subtasks=[IssueRef.from_api(item) for item in _mappings(fields.get("subtasks"))],
             links=_links(fields.get("issuelinks")),
             description=adf_to_markdown(fields.get("description")) or None,
+            extra_fields=extract_fields(fields, extra_field_ids),
         )
 
     def to_record(self) -> dict[str, Any]:
@@ -191,10 +199,13 @@ class IssueSummary:
     assignee: str | None
     updated: str | None
     url: str
+    extra_fields: dict[str, Any]
 
     @classmethod
-    def from_api(cls, data: Mapping[str, Any], site: str) -> IssueSummary:
-        """Build from one ``IssueBean`` of a search response."""
+    def from_api(
+        cls, data: Mapping[str, Any], site: str, extra_field_ids: Sequence[str] = ()
+    ) -> IssueSummary:
+        """Build from one ``IssueBean`` of a search response (see :meth:`Issue.from_api`)."""
         fields = _mapping(data.get("fields"))
         key = _str(data.get("key")) or ""
         return cls(
@@ -208,6 +219,7 @@ class IssueSummary:
             assignee=_nested(fields, "assignee", "displayName"),
             updated=_str(fields.get("updated")),
             url=f"https://{site}/browse/{quote(key, safe='')}",
+            extra_fields=extract_fields(fields, extra_field_ids),
         )
 
     def to_record(self) -> dict[str, Any]:
@@ -294,6 +306,47 @@ class Field:
     def to_record(self) -> dict[str, Any]:
         """Return the record rendered by the output layer."""
         return asdict(self)
+
+
+# Keys that only carry links/images and are noise in an object reduced to a dict.
+_NOISE_KEYS = frozenset({"self", "avatarUrls", "iconUrl"})
+# Keys whose string value best describes a Jira object, in order of preference:
+# option -> value, user -> displayName, version/component/sprint -> name, issue/project -> key.
+_LABEL_KEYS = ("value", "displayName", "name", "key")
+_MAX_VALUE_DEPTH = 10
+
+
+def extract_fields(fields: Mapping[str, Any], ids: Sequence[str]) -> dict[str, Any]:
+    """Return ``{id: simplified value}`` for each requested field id (None when absent)."""
+    return {field_id: simplify_field_value(fields.get(field_id)) for field_id in ids}
+
+
+def simplify_field_value(value: Any, _depth: int = 0) -> Any:
+    """Reduce a raw field value to something readable and JSON-friendly.
+
+    Scalars are kept; lists are simplified item by item; rich text (ADF) becomes Markdown; an
+    object becomes its label (an option's ``value``, a user's ``displayName``, a ``name`` or
+    a ``key``; cascading options become ``parent / child``); other objects are kept as
+    dicts without link/avatar noise.
+    """
+    if _depth > _MAX_VALUE_DEPTH:
+        return None
+    if value is None or isinstance(value, str | int | float | bool):
+        return value
+    if isinstance(value, list):
+        return [simplify_field_value(item, _depth + 1) for item in value]
+    if isinstance(value, Mapping):
+        if value.get("type") == "doc":
+            return adf_to_markdown(value)
+        for name in _LABEL_KEYS:
+            label = _str(value.get(name))
+            if label:
+                child = _nested(value, "child", "value") if name == "value" else None
+                return f"{label} / {child}" if child else label
+        return {
+            k: simplify_field_value(v, _depth + 1) for k, v in value.items() if k not in _NOISE_KEYS
+        }
+    return str(value)
 
 
 def _mapping(value: Any) -> Mapping[str, Any]:

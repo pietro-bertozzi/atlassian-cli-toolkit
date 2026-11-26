@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from atlassian_toolkit.core.output import OutputFormat, emit, resolve_format
+from atlassian_toolkit.core.output import OutputFormat, emit, render_table, resolve_format
 
 RECORDS = [
     {"key": "DEMO-1", "summary": "First | pipe", "labels": ["a", "b"], "done": False},
@@ -80,3 +80,12 @@ def test_empty_list_table_and_markdown_write_nothing_to_stdout(
     assert run([], OutputFormat.TABLE) == ""
     assert run([], OutputFormat.MARKDOWN) == ""
     assert "No results." in capsys.readouterr().err
+
+
+def test_table_never_truncates_column_headers() -> None:
+    columns = ["key", "status", "priority", "issue_type", "summary", "customfield_10016"]
+    record = {"key": "DEMO-1", "status": "In Progress", "priority": "Medium",
+              "issue_type": "Story", "summary": "word " * 40, "customfield_10016": 3.0}  # fmt: skip
+    out = io.StringIO()  # not a terminal: Rich renders 80 columns wide
+    render_table([record], columns, out)
+    assert "customfield_10016" in out.getvalue()

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 from atlassian_toolkit.core.client import JiraClient
 from atlassian_toolkit.jira import api
 from atlassian_toolkit.jira.models import (
@@ -46,17 +48,29 @@ def get_current_user(client: JiraClient) -> CurrentUser:
     return CurrentUser.from_api(api.get_myself(client))
 
 
-def get_issue(client: JiraClient, issue_id_or_key: str, site: str) -> Issue:
-    """Return one issue by key (e.g. ``DEMO-123``) or numeric id."""
-    return Issue.from_api(api.get_issue(client, issue_id_or_key, ISSUE_FIELDS), site)
+def get_issue(
+    client: JiraClient, issue_id_or_key: str, site: str, extra_fields: Sequence[str] = ()
+) -> Issue:
+    """Return one issue by key (e.g. ``DEMO-123``) or numeric id.
+
+    ``extra_fields`` are additional field ids (e.g. ``customfield_10016``) to include.
+    """
+    raw = api.get_issue(client, issue_id_or_key, _with_extra(ISSUE_FIELDS, extra_fields))
+    return Issue.from_api(raw, site, extra_fields)
 
 
 def search_issues(
-    client: JiraClient, jql: str, site: str, limit: int
+    client: JiraClient, jql: str, site: str, limit: int, extra_fields: Sequence[str] = ()
 ) -> tuple[list[IssueSummary], bool]:
     """Run a JQL search; return up to ``limit`` issues and whether more were available."""
-    raw, more = api.search_issues(client, jql, SEARCH_FIELDS, limit)
-    return [IssueSummary.from_api(item, site) for item in raw], more
+    fields = _with_extra(SEARCH_FIELDS, extra_fields)
+    raw, more = api.search_issues(client, jql, fields, limit)
+    return [IssueSummary.from_api(item, site, extra_fields) for item in raw], more
+
+
+def _with_extra(base: Sequence[str], extra: Sequence[str]) -> tuple[str, ...]:
+    """``base`` plus the extra field ids not already in it (order kept)."""
+    return (*base, *(field_id for field_id in extra if field_id not in base))
 
 
 def get_comments(

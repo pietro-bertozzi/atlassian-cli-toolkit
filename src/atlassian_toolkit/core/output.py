@@ -102,8 +102,13 @@ def render_table(
     columns: Sequence[str] | None,
     stream: TextIO,
 ) -> None:
-    """Render a Rich table: key/value rows for a record, one row per record for a list."""
-    console = Console(file=stream, highlight=False, soft_wrap=False)
+    """Render a Rich table: key/value rows for a record, one row per record for a list.
+
+    On a terminal Rich uses the terminal width. When writing to a pipe or file there is no real
+    width (Rich would assume 80 and crop wide tables), so a generous fixed width is used.
+    """
+    width = None if _is_terminal(stream) else NON_TERMINAL_TABLE_WIDTH
+    console = Console(file=stream, highlight=False, soft_wrap=False, width=width)
     if isinstance(data, Mapping):
         table = Table(show_header=False)
         table.add_column(style="bold")
@@ -117,10 +122,22 @@ def render_table(
         keys = _columns(data, columns)
         table = Table()
         for key in keys:
-            table.add_column(key)
+            # Never truncate a header: it may be an id the reader must copy (customfield_10016).
+            table.add_column(key, min_width=len(key))
         for record in data:
             table.add_row(*(Text(_cell(record.get(k))) for k in keys))
     console.print(table)
+
+
+NON_TERMINAL_TABLE_WIDTH = 160
+
+
+def _is_terminal(stream: TextIO) -> bool:
+    isatty = getattr(stream, "isatty", None)
+    try:
+        return bool(isatty()) if isatty is not None else False
+    except ValueError:  # closed stream
+        return False
 
 
 def echo_err(message: str) -> None:

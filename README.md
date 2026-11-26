@@ -65,3 +65,7 @@ uv run ruff format && uv run ruff check
 ```
 
 Unit tests never touch the network, the real keyring or your real config directory.
+
+CI (GitHub Actions, `.github/workflows/ci.yml`) runs the format check, lint and unit tests on
+Windows, macOS and Linux with Python 3.11 and 3.13, and checks that `pip install .` works on
+each OS.

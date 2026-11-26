@@ -98,7 +98,8 @@ assume a specific OS.
   message pointing to the `ATL_JIRA_API_TOKEN` fallback; never fall back to plaintext files.
 - No shell-specific behaviour, no reliance on POSIX-only modules, UTF-8 output everywhere.
 - Tests must not depend on the host OS (use `tmp_path`, mock keyring).
-- When CI is added, it runs on all three OSes.
+- CI (`.github/workflows/ci.yml`) runs format check, lint and unit tests on all three OSes;
+  a change is done only when CI is green everywhere.
 
 ## 6. Architecture
 

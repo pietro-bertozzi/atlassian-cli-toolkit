@@ -7,6 +7,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- CI: format check, lint and unit tests on Windows, macOS and Linux (Python 3.11 and 3.13),
+  plus a plain `pip install .` check on each OS.
 - `docs/agents.md` and the Claude Code skill `.claude/skills/atl-jira`: how coding agents should
   use `atl` (setup, rules, recipes).
 - `--field <id>` on `issue get`, `issue context`, `search` and `mine`: include any field

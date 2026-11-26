@@ -7,6 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `docs/agents.md` and the Claude Code skill `.claude/skills/atl-jira`: how coding agents should
+  use `atl` (setup, rules, recipes).
+- `--field <id>` on `issue get`, `issue context`, `search` and `mine`: include any field
+  (e.g. story points) by id; values are simplified and returned in `extra_fields`.
 - `atl jira projects`: projects you can view (key, name, type, company/team-managed), with
   `--query` and `--limit`.
 - `atl jira fields`: issue fields and their ids, with `--search` and `--custom`, to find
@@ -32,3 +36,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `--version`. Exit codes: 3 configuration, 4 authentication, 5 not found, 6 API/network.
 - `ATL_CONFIG_DIR` environment variable to relocate the config directory.
 - Project skeleton: packaging, lint and test configuration.
+
+### Fixed
+
+- Tables written to a pipe or file are no longer cropped at 80 characters, and column headers
+  (e.g. custom field ids) are never shortened.

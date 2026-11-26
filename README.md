@@ -28,6 +28,12 @@ The token is stored in your OS keyring, never in a config file. On headless mach
 `ATL_JIRA_API_TOKEN` instead. Details, scoped tokens, output formats and troubleshooting:
 [docs/jira.md](docs/jira.md).
 
+## Use from coding agents
+
+`atl` is built to be called by coding agents such as Claude Code. See
+[docs/agents.md](docs/agents.md) for setup, rules and recipes; a ready-made Claude Code skill
+is in [.claude/skills/atl-jira/SKILL.md](.claude/skills/atl-jira/SKILL.md).
+
 ## Discover commands
 
 There is no `help` or `list` command: add `--help` at any level. The output is generated from
@@ -48,7 +54,8 @@ atl jira search --help  # arguments and options of one command
 - `atl jira issue comments`, `atl jira issue context` (all of an issue in one call, for
   agents) — available
 - `atl jira projects`, `atl jira fields` (find custom field ids) — available
-- Sprints, story points, issue history — planned
+- `--field <id>` on issue/search commands (custom fields such as story points) — available
+- Sprints, issue history — planned
 
 ## Development
 

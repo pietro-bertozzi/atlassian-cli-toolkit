@@ -8,15 +8,11 @@ from pathlib import Path
 
 import httpx
 import pytest
-from conftest import MemoryKeyring
-from typer.testing import CliRunner
+from helpers import MemoryKeyring, route_jira, runner
 
 from atlassian_toolkit.cli import app
-from atlassian_toolkit.core.client import JiraClient
-from atlassian_toolkit.jira import connect, write_commands
+from atlassian_toolkit.jira import write_commands
 
-TOKEN = "fake-token-value"
-LOGIN = ["auth", "login", "--site", "example.atlassian.net", "--email", "alice@example.com"]
 TRANSITIONS = {
     "transitions": [
         {"id": "11", "name": "Start progress", "to": {"name": "In Progress",
@@ -33,15 +29,6 @@ USERS = [
     {"accountId": "u2", "displayName": "Bobby Example", "active": True},
     {"accountId": "u3", "displayName": "Bob Gone", "active": False},
 ]  # fmt: skip
-
-runner = CliRunner()
-
-
-@pytest.fixture
-def logged_in(memory_keyring: MemoryKeyring) -> MemoryKeyring:
-    result = runner.invoke(app, [*LOGIN, "--token-stdin"], input=TOKEN)
-    assert result.exit_code == 0, result.output
-    return memory_keyring
 
 
 @pytest.fixture
@@ -67,10 +54,7 @@ def jira(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
             return httpx.Response(200, json=matches)
         return httpx.Response(404)
 
-    def factory(profile, token):  # type: ignore[no-untyped-def]
-        return JiraClient(profile, token, transport=httpx.MockTransport(handler))
-
-    monkeypatch.setattr(connect, "JiraClient", factory)
+    route_jira(monkeypatch, handler)
     return seen
 
 

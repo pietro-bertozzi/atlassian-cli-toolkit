@@ -1,5 +1,5 @@
 import pytest
-from conftest import MemoryKeyring
+from helpers import MemoryKeyring
 
 from atlassian_toolkit.core import credentials
 from atlassian_toolkit.core.errors import ConfigError

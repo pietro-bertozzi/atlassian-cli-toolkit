@@ -1,36 +1,16 @@
 """Shared fixtures: nothing here may touch the real keyring, config dir or network."""
 
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from pathlib import Path
 
 import httpx
 import keyring
 import keyring.errors
 import pytest
-from keyring.backend import KeyringBackend
+from helpers import LOGIN, TOKEN, MemoryKeyring, route_jira, runner
 from keyring.backends.fail import Keyring as FailKeyring
 
-
-class MemoryKeyring(KeyringBackend):
-    """In-memory keyring so tests never touch the host OS keyring."""
-
-    priority = 1  # type: ignore[assignment]
-
-    def __init__(self) -> None:
-        super().__init__()
-        self.store: dict[tuple[str, str], str] = {}
-
-    def get_password(self, service: str, username: str) -> str | None:
-        return self.store.get((service, username))
-
-    def set_password(self, service: str, username: str, password: str) -> None:
-        self.store[(service, username)] = password
-
-    def delete_password(self, service: str, username: str) -> None:
-        try:
-            del self.store[(service, username)]
-        except KeyError:
-            raise keyring.errors.PasswordDeleteError("not found") from None
+from atlassian_toolkit.cli import app
 
 
 @pytest.fixture(autouse=True)
@@ -69,3 +49,28 @@ def no_keyring() -> Iterator[None]:
     keyring.set_keyring(FailKeyring())
     yield
     keyring.set_keyring(previous)
+
+
+@pytest.fixture
+def logged_in(memory_keyring: MemoryKeyring) -> MemoryKeyring:
+    """A ``default`` profile for example.atlassian.net with a fake token in the memory keyring."""
+    result = runner.invoke(app, [*LOGIN, "--token-stdin"], input=TOKEN + "\n")
+    assert result.exit_code == 0, result.output
+    return memory_keyring
+
+
+@pytest.fixture
+def mock_jira(monkeypatch: pytest.MonkeyPatch) -> Callable[[httpx.Response], list[httpx.Request]]:
+    """Answer every Jira request with the given response; returns the requests received."""
+
+    def install(response: httpx.Response) -> list[httpx.Request]:
+        seen: list[httpx.Request] = []
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            seen.append(request)
+            return response
+
+        route_jira(monkeypatch, handler)
+        return seen
+
+    return install

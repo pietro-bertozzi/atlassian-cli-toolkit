@@ -5,11 +5,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-11-26
+
 ### Added
 
+- `atl setup claude-skill`: install the packaged `atl-jira` Claude Code skill in
+  `~/.claude/skills` so Claude Code uses `atl` in every project.
+- Release workflow: pushing a `vX.Y.Z` tag runs the tests, builds the package and publishes a
+  GitHub release; see `docs/releasing.md`. Install anywhere with
+  `uv tool install git+https://github.com/pietro-bertozzi/atlassian-cli-toolkit@vX.Y.Z`.
 - CI: format check, lint and unit tests on Windows, macOS and Linux (Python 3.11 and 3.13),
   plus a plain `pip install .` check on each OS.
-- `docs/agents.md` and the Claude Code skill `.claude/skills/atl-jira`: how coding agents should
+- `docs/agents.md` and the `atl-jira` Claude Code skill: how coding agents should
   use `atl` (setup, rules, recipes).
 - `--field <id>` on `issue get`, `issue context`, `search` and `mine`: include any field
   (e.g. story points) by id; values are simplified and returned in `extra_fields`.

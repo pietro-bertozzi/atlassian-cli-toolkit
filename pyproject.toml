@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "atlassian-cli-toolkit"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Read-only command line toolkit for Atlassian Cloud (Jira) built on the official REST APIs."
 readme = "README.md"
 requires-python = ">=3.11"
@@ -26,6 +26,9 @@ dev = [
     "pytest>=8",
     "ruff>=0.6",
 ]
+
+[tool.hatch.version]
+path = "src/atlassian_toolkit/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/atlassian_toolkit"]

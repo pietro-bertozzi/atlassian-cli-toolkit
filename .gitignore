@@ -221,3 +221,6 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Local secrets (e.g. a Jira API token before `atl auth login --token-file`). Never commit.
+.secrets/

@@ -79,27 +79,27 @@ becomes `default_profile`. `--site` may be a bare host or a URL (it is normalise
 is stored first; if that fails nothing is written to the config. Login does **not** call Jira;
 use `atl jira me` to verify.
 
-#### Windows PowerShell: if pasting into the token prompt fails
+#### Token from a file (works in any terminal)
 
-Pass the token from the clipboard instead. The order matters: copying the command *after* the
-token would overwrite the token in the clipboard. (Not yet tested on Windows.)
+Hidden prompts are unreliable on some terminals (Git Bash, the VS Code terminal, some
+PowerShell setups): pasting may do nothing, and because nothing is shown you cannot tell.
+Pasting into an editor always works, so the toolkit can import the token from a file:
 
-1. Paste this into PowerShell and edit the site and email. **Do not press Enter yet.**
+1. In the repository, create `.secrets/jira-token.txt`, paste the token into it (VS Code,
+   Notepad...) and save. Only the token, nothing else. The `.secrets/` folder is listed in
+   `.gitignore`, so git never commits it, and `.claude/settings.json` denies Claude Code
+   reading it. Any other path also works.
+2. Run (the same command works in Git Bash, PowerShell, macOS and Linux):
 
-   ```powershell
-   Get-Clipboard | uv run atl auth login --site example.atlassian.net --email alice@example.com --token-stdin
+   ```bash
+   uv run atl auth login --site example.atlassian.net --email alice@example.com --token-file .secrets/jira-token.txt
    ```
 
-2. Now copy the API token in the browser, go back to PowerShell and press Enter.
-3. Overwrite the clipboard, then check the login:
+The token is stored in the keyring and **the file is deleted**. If storing fails (e.g. no
+keyring) the file is kept and nothing is saved. A leading BOM and trailing newline (as some
+Windows editors write) are ignored; a token containing spaces or line breaks is rejected.
 
-   ```powershell
-   Set-Clipboard -Value " "
-   uv run atl auth status
-   uv run atl -f json jira me
-   ```
-
-If Windows clipboard history (Win+V) is enabled, delete the token entry there too. Atlassian
+Close the editor tab without saving again, so the editor does not recreate the file. Atlassian
 shows a token only once: if you no longer have it, revoke it and create a new one.
 
 ### `atl auth status` *(available)*
@@ -222,7 +222,7 @@ story points (custom field discovered per site). *(planned)*
 | ------- | ------------------ |
 | `No profile selected` (exit 3) | Run `atl auth login`, or pass `--profile` / set `ATL_PROFILE` |
 | `No usable OS keyring` (exit 3) | Headless machine: export `ATL_JIRA_API_TOKEN` instead |
-| Cannot paste the token in Windows PowerShell | See "Windows PowerShell: if pasting into the token prompt fails" under `atl auth login` |
+| Cannot paste the token into the hidden prompt | Use `--token-file` (see "Token from a file" under `atl auth login`) |
 | HTTP 401 (exit 4) | Token expired/revoked, or email does not belong to the token; create a new token and log in again |
 | HTTP 401 with a scoped token | Wrong `cloud_id`, or the token lacks a scope (`read:jira-user` for `me`) |
 | HTTP 403 (exit 4) | The account/token lacks permission for that resource |

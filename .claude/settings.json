@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.secrets/**)",
+      "Edit(./.secrets/**)",
+      "Bash(cat .secrets/*)",
+      "Bash(type .secrets/*)"
+    ]
+  }
+}

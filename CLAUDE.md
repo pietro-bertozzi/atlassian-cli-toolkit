@@ -64,6 +64,9 @@ Atlassian Data Center / Server is out of scope.
 - User config lives outside the repo, in the OS-standard user config directory.
 - API tokens are stored in the OS keyring. The only fallback is an environment variable
   (`ATL_JIRA_API_TOKEN`) for headless/CI use. Never write tokens to config files.
+  The only file a token may sit in is a user-created import file (conventionally in the
+  gitignored `.secrets/` folder) consumed by `atl auth login --token-file`, which deletes it.
+  Agents must never read files in `.secrets/`.
 - Never accept secrets as command-line arguments (shell history, process list). Read them from
   an interactive hidden prompt or from stdin.
 - Never print, log or include credentials in error messages, exceptions, test snapshots or

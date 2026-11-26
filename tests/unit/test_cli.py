@@ -277,3 +277,54 @@ def test_issue_get_url_uses_site_in_scoped_mode(memory_keyring: MemoryKeyring, m
     assert result.exit_code == 0, result.output
     assert seen[0].url.host == "api.atlassian.com"
     assert json.loads(result.stdout)["url"] == "https://example.atlassian.net/browse/DEMO-123"
+
+
+def test_login_with_token_file_stores_token_and_deletes_file(
+    memory_keyring: MemoryKeyring, tmp_path: Path
+) -> None:
+    token_file = tmp_path / "token.txt"
+    token_file.write_text("\ufeff" + TOKEN + "\r\n", encoding="utf-8")  # BOM + CRLF, as Notepad
+    result = runner.invoke(app, [*LOGIN, "--token-file", str(token_file)])
+    assert result.exit_code == 0, result.output
+    assert memory_keyring.store == {("atl-jira", "default"): TOKEN}
+    assert not token_file.exists()
+    assert TOKEN not in result.output
+    assert TOKEN not in default_config_path().read_text()
+
+
+def test_login_token_file_missing_is_config_error(
+    memory_keyring: MemoryKeyring, tmp_path: Path
+) -> None:
+    result = runner.invoke(app, [*LOGIN, "--token-file", str(tmp_path / "nope.txt")])
+    assert result.exit_code == 3
+    assert "not found" in result.stderr
+    assert memory_keyring.store == {}
+
+
+def test_login_token_file_keeps_file_when_keyring_fails(no_keyring: None, tmp_path: Path) -> None:
+    token_file = tmp_path / "token.txt"
+    token_file.write_text(TOKEN, encoding="utf-8")
+    result = runner.invoke(app, [*LOGIN, "--token-file", str(token_file)])
+    assert result.exit_code == 3
+    assert token_file.exists()  # nothing stored, so the user's copy is not destroyed
+    assert not default_config_path().exists()
+
+
+def test_login_rejects_both_token_sources(memory_keyring: MemoryKeyring, tmp_path: Path) -> None:
+    token_file = tmp_path / "token.txt"
+    token_file.write_text(TOKEN, encoding="utf-8")
+    result = runner.invoke(
+        app, [*LOGIN, "--token-stdin", "--token-file", str(token_file)], input=TOKEN
+    )
+    assert result.exit_code == 3
+    assert token_file.exists()
+
+
+@pytest.mark.parametrize("content", ["", "  \n", "two words", "line1\nline2"])
+def test_login_rejects_empty_or_malformed_token(
+    memory_keyring: MemoryKeyring, content: str
+) -> None:
+    result = runner.invoke(app, [*LOGIN, "--token-stdin"], input=content)
+    assert result.exit_code == 3
+    assert memory_keyring.store == {}
+    assert not default_config_path().exists()

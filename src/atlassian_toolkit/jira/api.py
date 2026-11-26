@@ -35,3 +35,40 @@ def _expect_object(data: Any, path: str) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ApiError(f"Unexpected response from {path} (expected a JSON object).")
     return data
+
+
+SEARCH_PAGE_SIZE = 100
+
+
+def search_issues(
+    client: JiraClient, jql: str, fields: Sequence[str], limit: int
+) -> tuple[list[dict[str, Any]], bool]:
+    """``GET /rest/api/3/search/jql`` — issues matching ``jql``, following ``nextPageToken``.
+
+    Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-jql-get
+    Required scope (scoped tokens): ``read:jira-work``. The JQL must be bounded (contain a
+    search restriction). Returns at most ``limit`` issues and whether more were available.
+    """
+    path = "/rest/api/3/search/jql"
+    issues: list[dict[str, Any]] = []
+    token: str | None = None
+    seen_tokens: set[str] = set()
+    while len(issues) < limit:
+        params: dict[str, Any] = {
+            "jql": jql,
+            "fields": ",".join(fields),
+            "maxResults": min(SEARCH_PAGE_SIZE, limit - len(issues)),
+        }
+        if token:
+            params["nextPageToken"] = token
+        page = _expect_object(client.get(path, params=params), path)
+        batch = page.get("issues")
+        if not isinstance(batch, list):
+            raise ApiError(f"Unexpected response from {path} (no 'issues' list).")
+        issues.extend(item for item in batch if isinstance(item, dict))
+        token = page.get("nextPageToken") if isinstance(page.get("nextPageToken"), str) else None
+        # Stop on the last page; also guard against an empty page or a repeated token.
+        if not token or not batch or token in seen_tokens:
+            return issues[:limit], False
+        seen_tokens.add(token)
+    return issues[:limit], True

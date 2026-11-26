@@ -231,7 +231,8 @@ def test_issue_get_json_output(logged_in: MemoryKeyring, mock_jira) -> None:  # 
     result = runner.invoke(app, ["-f", "json", "jira", "issue", "get", "DEMO-123"])
     data = json.loads(result.stdout)
     assert list(data) == [
-        "key", "id", "url", "summary", "issue_type", "status", "status_category", "priority",
+        "key", "id", "url", "summary", "issue_type", "status", "status_category",
+        "status_category_key", "priority",
         "project_key", "parent_key", "assignee", "reporter", "labels", "resolution", "created",
         "updated", "due_date", "description",
     ]  # fmt: skip
@@ -328,3 +329,100 @@ def test_login_rejects_empty_or_malformed_token(
     assert result.exit_code == 3
     assert memory_keyring.store == {}
     assert not default_config_path().exists()
+
+
+def _search_issue(n: int) -> dict:
+    return {
+        "id": str(10000 + n),
+        "key": f"DEMO-{n}",
+        "fields": {
+            "summary": f"Issue {n}",
+            "status": {"name": "To Do", "statusCategory": {"key": "new", "name": "To Do"}},
+            "issuetype": {"name": "Task"},
+            "priority": {"name": "Medium"},
+            "assignee": {"displayName": "Alice Example"},
+            "updated": "2026-01-10T09:00:00.000+0100",
+        },
+    }
+
+
+@pytest.fixture
+def paged_jira(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
+    """Serve 5 issues in pages of 2 (tokens 'p2', 'p3'), as /search/jql does."""
+    seen: list[httpx.Request] = []
+    pages = {None: ([1, 2], "p2"), "p2": ([3, 4], "p3"), "p3": ([5], None)}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        numbers, next_token = pages[request.url.params.get("nextPageToken")]
+        body: dict = {"issues": [_search_issue(n) for n in numbers], "isLast": next_token is None}
+        if next_token:
+            body["nextPageToken"] = next_token
+        return httpx.Response(200, json=body)
+
+    def factory(profile, token):  # type: ignore[no-untyped-def]
+        return JiraClient(profile, token, transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(jira_commands, "JiraClient", factory)
+    return seen
+
+
+def test_search_follows_next_page_token(logged_in: MemoryKeyring, paged_jira) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "json", "jira", "search", "project = DEMO"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert [d["key"] for d in data] == ["DEMO-1", "DEMO-2", "DEMO-3", "DEMO-4", "DEMO-5"]
+    assert list(data[0]) == [
+        "key", "summary", "status", "status_category", "status_category_key", "issue_type",
+        "priority", "assignee",
+        "updated", "url",
+    ]  # fmt: skip
+    assert data[0]["url"] == "https://example.atlassian.net/browse/DEMO-1"
+    assert data[0]["status_category_key"] == "new"
+    first = paged_jira[0]
+    assert first.url.path == "/rest/api/3/search/jql"
+    assert first.url.params["jql"] == "project = DEMO"
+    assert "summary" in first.url.params["fields"].split(",")
+    assert "nextPageToken" not in first.url.params
+    assert [r.url.params.get("nextPageToken") for r in paged_jira[1:]] == ["p2", "p3"]
+    assert "more match" not in result.stderr
+
+
+def test_search_limit_stops_early_and_warns(logged_in: MemoryKeyring, paged_jira) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "json", "jira", "search", "project = DEMO", "--limit", "3"])
+    assert result.exit_code == 0, result.output
+    assert [d["key"] for d in json.loads(result.stdout)] == ["DEMO-1", "DEMO-2", "DEMO-3"]
+    assert len(paged_jira) == 2
+    assert paged_jira[1].url.params["maxResults"] == "1"
+    assert "first 3 issues; more match" in result.stderr
+
+
+def test_mine_uses_current_user_jql(logged_in: MemoryKeyring, paged_jira) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "json", "jira", "mine"])
+    assert result.exit_code == 0, result.output
+    jql = paged_jira[0].url.params["jql"]
+    assert "assignee = currentUser()" in jql
+    assert "statusCategory != Done" in jql
+
+
+def test_search_table_shows_selected_columns(logged_in: MemoryKeyring, paged_jira) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "table", "jira", "search", "project = DEMO"])
+    assert result.exit_code == 0, result.output
+    assert "DEMO-5" in result.stdout
+    assert "updated" not in result.stdout
+
+
+def test_search_empty_result_is_empty_json_list(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    mock_jira(httpx.Response(200, json={"issues": [], "isLast": True}))
+    result = runner.invoke(app, ["-f", "json", "jira", "search", "project = DEMO"])
+    assert result.exit_code == 0
+    assert json.loads(result.stdout) == []
+
+
+def test_search_invalid_jql_exits_6_with_jira_message(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    body = {"errorMessages": ["Error in the JQL Query: Expecting a field name."]}
+    mock_jira(httpx.Response(400, json=body))
+    result = runner.invoke(app, ["jira", "search", "= nonsense"])
+    assert result.exit_code == 6
+    assert "Error in the JQL Query" in result.stderr
+    assert result.stdout == ""

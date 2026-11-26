@@ -46,6 +46,8 @@ class CurrentUser:
 class Issue:
     """One Jira issue (``GET /rest/api/3/issue/{issueIdOrKey}``), with core fields only.
 
+    ``status_category`` is the category name as Jira shows it (translated into the user's
+    language); ``status_category_key`` is the language-independent key (e.g. ``new``).
     ``description`` is Markdown converted from Jira's ADF rich text. Optional fields
     (priority, parent, assignee, ...) are None when unset or hidden from the user.
     """
@@ -57,6 +59,7 @@ class Issue:
     issue_type: str | None
     status: str | None
     status_category: str | None
+    status_category_key: str | None
     priority: str | None
     project_key: str | None
     parent_key: str | None
@@ -84,6 +87,7 @@ class Issue:
             issue_type=_nested(fields, "issuetype", "name"),
             status=_nested(fields, "status", "name"),
             status_category=_nested(status, "statusCategory", "name"),
+            status_category_key=_nested(status, "statusCategory", "key"),
             priority=_nested(fields, "priority", "name"),
             project_key=_nested(fields, "project", "key"),
             parent_key=_nested(fields, "parent", "key"),
@@ -95,6 +99,44 @@ class Issue:
             updated=_str(fields.get("updated")),
             due_date=_str(fields.get("duedate")),
             description=adf_to_markdown(fields.get("description")) or None,
+        )
+
+    def to_record(self) -> dict[str, Any]:
+        """Return the record rendered by the output layer."""
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class IssueSummary:
+    """One row of a JQL search result: the fields needed to scan a list of issues."""
+
+    key: str
+    summary: str
+    status: str | None
+    status_category: str | None
+    status_category_key: str | None
+    issue_type: str | None
+    priority: str | None
+    assignee: str | None
+    updated: str | None
+    url: str
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any], site: str) -> IssueSummary:
+        """Build from one ``IssueBean`` of a search response."""
+        fields = _mapping(data.get("fields"))
+        key = _str(data.get("key")) or ""
+        return cls(
+            key=key,
+            summary=_str(fields.get("summary")) or "",
+            status=_nested(fields, "status", "name"),
+            status_category=_nested(_mapping(fields.get("status")), "statusCategory", "name"),
+            status_category_key=_nested(_mapping(fields.get("status")), "statusCategory", "key"),
+            issue_type=_nested(fields, "issuetype", "name"),
+            priority=_nested(fields, "priority", "name"),
+            assignee=_nested(fields, "assignee", "displayName"),
+            updated=_str(fields.get("updated")),
+            url=f"https://{site}/browse/{quote(key, safe='')}",
         )
 
     def to_record(self) -> dict[str, Any]:

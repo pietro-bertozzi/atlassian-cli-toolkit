@@ -19,6 +19,7 @@ pip install .      # plain pip works too
 atl auth login           # prompts for site, email and (hidden) API token
 atl auth status          # shows the profile; never the token
 atl -f json jira me      # checks that the credentials work
+atl jira mine                # your open issues
 atl jira issue get DEMO-123   # one issue, description as Markdown
 ```
 
@@ -32,7 +33,8 @@ The token is stored in your OS keyring, never in a config file. On headless mach
 - `atl auth login | status | logout` — available
 - `atl jira me` — available
 - `atl jira issue get` — available
-- Issue comments, JQL search, sprints, story points — planned
+- `atl jira search` (JQL), `atl jira mine` — available
+- Issue comments, sprints, story points — planned
 
 ## Development
 

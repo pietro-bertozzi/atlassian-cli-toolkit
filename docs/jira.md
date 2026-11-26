@@ -144,9 +144,12 @@ ticket from the terminal or to hand a ticket to a coding agent as clean text.
   and returns the **current** key, so `key` in the output can differ from what you typed.
 - **Issue type**: Bug, Story, Task, Epic, Sub-task... Each site/project defines its own set.
 - **Status vs status category**: the status is the workflow step and its name is chosen by
-  each team (`In Review`, `QA`, `Waiting for customer`...). Every status belongs to one of
-  three fixed **categories**: `To Do`, `In Progress`, `Done`. Scripts that must work across
-  projects should look at `status_category`, not `status`.
+  each team (`In Review`, `QA`, `Da completare`...). Every status belongs to a **category**
+  (in English: To Do, In Progress, Done). The category *name* is translated into the user's
+  language (`status_category`, e.g. `Da completare` for an Italian user); the category *key*
+  is not (`status_category_key`, e.g. `new`). Scripts that must work across projects and
+  languages should use `status_category_key`. The API spec does not list the possible keys;
+  `new` was observed for a To Do-category status.
 - **Parent**: the epic of a story, or the story/task of a sub-task.
 - **Description and ADF**: rich text in Jira REST API v3 is returned as
   [Atlassian Document Format](https://developer.atlassian.com/cloud/jira/platform/apis/document/structure/),
@@ -162,7 +165,7 @@ ticket from the terminal or to hand a ticket to a coding agent as clean text.
 - **Permissions**: *Browse projects* on the issue's project, and the issue security level if
   the project uses issue security. **Scope** (scoped tokens): `read:jira-work`.
 - **JSON output** (stable keys): `key`, `id`, `url`, `summary`, `issue_type`, `status`,
-  `status_category`, `priority`, `project_key`, `parent_key`, `assignee`, `reporter`
+  `status_category`, `status_category_key`, `priority`, `project_key`, `parent_key`, `assignee`, `reporter`
   (display names), `labels` (list), `resolution`, `created`, `updated` (ISO 8601 as returned
   by Jira), `due_date` (`YYYY-MM-DD`), `description` (Markdown). Optional values are `null`
   when unset.
@@ -201,10 +204,47 @@ atl -f markdown jira issue get DEMO-123 > DEMO-123.md
 - HTTP 404 means *either* the issue does not exist *or* you are not allowed to see it; Jira
   does not say which.
 
+### `atl jira search "<JQL>"` and `atl jira mine` *(available)*
+
+Lists issues matching a query. `mine` is a shortcut for your open work.
+
+**Concepts**
+
+- **JQL** (Jira Query Language) is the search language behind Jira's issue search
+  (<https://confluence.atlassian.com/x/egORLQ>, the link used by the REST API reference).
+  Example: `project = DEMO AND statusCategory != Done ORDER BY updated DESC`.
+- `currentUser()` is the user the token belongs to.
+- The query must be **bounded**: it needs at least one restriction (`project = X`,
+  `assignee = currentUser()`...). A bare `ORDER BY key` is rejected.
+
+**Details**
+
+- **Jira web UI**: the issue search page in JQL (advanced) mode; paste the same query there
+  to compare results.
+- **Endpoint**: `GET /rest/api/3/search/jql`
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-search/#api-rest-api-3-search-jql-get>).
+  Pages are fetched with `nextPageToken` until the last page or `--limit` is reached (100
+  issues per request). The old `/rest/api/3/search` endpoint is not used.
+- `mine` runs `assignee = currentUser() AND statusCategory != Done ORDER BY updated DESC`.
+- **Permissions**: only issues you can browse are returned. **Scope**: `read:jira-work`.
+- **Options**: `--limit/-n` (default 50, max 1000). When more issues match, a note is printed
+  on stderr; stdout stays valid JSON.
+- **JSON output**: a list of objects with the stable keys `key`, `summary`, `status`,
+  `status_category`, `status_category_key`, `issue_type`, `priority`, `assignee`, `updated`,
+  `url`. The table and Markdown formats show `key`, `status`, `priority`, `issue_type`,
+  `summary`. No description (use `issue get` for that).
+
+```bash
+atl jira mine
+atl -f json jira search "project = DEMO AND updated >= -7d ORDER BY updated DESC" --limit 200
+```
+
+**Limitations**: search results may lag a few seconds behind recent edits (Jira's search
+index); the `reconcileIssues` option for read-after-write consistency is not exposed.
+
 ### Planned
 
-Issue comments, JQL search (`/rest/api/3/search/jql`, token pagination), sprints/boards,
-story points (custom field discovered per site). *(planned)*
+Issue comments, sprints/boards, story points (custom field discovered per site). *(planned)*
 
 ## 5. HTTP behaviour *(available)*
 
@@ -226,6 +266,7 @@ story points (custom field discovered per site). *(planned)*
 | HTTP 401 (exit 4) | Token expired/revoked, or email does not belong to the token; create a new token and log in again |
 | HTTP 401 with a scoped token | Wrong `cloud_id`, or the token lacks a scope (`read:jira-user` for `me`) |
 | HTTP 403 (exit 4) | The account/token lacks permission for that resource |
+| `search` gives HTTP 400 (exit 6) | Invalid or unbounded JQL; Jira's message is shown. Add a restriction such as `project = X` |
 | `issue get` gives HTTP 404 (exit 5) | Wrong key, or you lack *Browse projects* / issue security permission for it. Check by opening `https://<site>/browse/<KEY>` in the browser with the same account |
 | `issue get` fails with a scoped token | The token needs the `read:jira-work` scope |
 | Unexpected account is used | `ATL_JIRA_API_TOKEN` overrides the keyring; check `atl auth status` → `token_source` |

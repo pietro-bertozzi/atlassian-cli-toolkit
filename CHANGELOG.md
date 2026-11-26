@@ -7,6 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `atl jira search "<JQL>"` and `atl jira mine`: list issues via `/rest/api/3/search/jql`
+  with `nextPageToken` pagination and `--limit`.
+- `status_category_key` in `issue get` output: the language-independent status category key
+  (`status_category` is the translated name).
 - `atl auth login --token-file PATH`: import the API token from a file (works in any terminal),
   store it in the OS keyring and delete the file. Empty or malformed tokens are now rejected.
 - `atl jira issue get <KEY>`: show one issue's core fields, with the description converted

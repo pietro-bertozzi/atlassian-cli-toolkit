@@ -87,6 +87,7 @@ def test_issue_from_api_maps_fields() -> None:
         "issue_type": "Bug",
         "status": "In Progress",
         "status_category": "In Progress",
+        "status_category_key": "indeterminate",
         "priority": "High",
         "project_key": "DEMO",
         "parent_key": "DEMO-100",

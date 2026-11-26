@@ -13,7 +13,13 @@ from atlassian_toolkit.core.config import (
 )
 from atlassian_toolkit.core.context import GlobalOptions
 from atlassian_toolkit.core.credentials import get_jira_token
-from atlassian_toolkit.core.output import OutputFormat, emit, render_markdown, resolve_format
+from atlassian_toolkit.core.output import (
+    OutputFormat,
+    echo_err,
+    emit,
+    render_markdown,
+    resolve_format,
+)
 from atlassian_toolkit.jira import service
 from atlassian_toolkit.jira.models import Issue
 
@@ -38,6 +44,41 @@ def me(ctx: typer.Context) -> None:
     with client:
         user = service.get_current_user(client)
     emit(user.to_record(), resolve_format(options.format))
+
+
+SEARCH_COLUMNS = ("key", "status", "priority", "issue_type", "summary")
+LimitOption = Annotated[
+    int, typer.Option("--limit", "-n", min=1, max=1000, help="Maximum number of issues.")
+]
+
+
+@app.command()
+def search(
+    ctx: typer.Context,
+    jql: Annotated[str, typer.Argument(help='JQL query, e.g. "project = DEMO AND status = Open".')],
+    limit: LimitOption = 50,
+) -> None:
+    """Search issues with JQL (Jira Query Language)."""
+    _run_search(ctx.obj, jql, limit)
+
+
+@app.command()
+def mine(ctx: typer.Context, limit: LimitOption = 50) -> None:
+    """List your open issues (assigned to you, not done), most recently updated first."""
+    _run_search(ctx.obj, service.MY_OPEN_ISSUES_JQL, limit)
+
+
+def _run_search(options: GlobalOptions, jql: str, limit: int) -> None:
+    client, profile = _open_client(options)
+    with client:
+        issues, more = service.search_issues(client, jql, profile.site, limit)
+    emit(
+        [issue.to_record() for issue in issues],
+        resolve_format(options.format),
+        columns=SEARCH_COLUMNS,
+    )
+    if more:
+        echo_err(f"Showing the first {limit} issues; more match. Use --limit to see more.")
 
 
 @issue_app.command("get")

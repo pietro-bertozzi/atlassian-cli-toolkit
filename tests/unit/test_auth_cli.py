@@ -225,3 +225,75 @@ def test_login_rejects_empty_or_malformed_token(
     assert result.exit_code == 3
     assert memory_keyring.store == {}
     assert not default_config_path().exists()
+
+
+# --- login safety nets ------------------------------------------------------------------------
+
+
+def test_login_warns_before_replacing_an_existing_profile(logged_in: MemoryKeyring) -> None:
+    result = runner.invoke(app, [*LOGIN, "--token-stdin"], input="other-token")
+    assert result.exit_code == 0, result.output
+    assert "profile 'default' already exists; it will be replaced" in result.stderr
+    assert logged_in.store == {("atl-jira", "default"): "other-token"}
+
+
+def test_login_new_profile_has_no_replace_note(memory_keyring: MemoryKeyring) -> None:
+    result = runner.invoke(app, [*LOGIN, "--token-stdin"], input=TOKEN)
+    assert "already exists" not in result.stderr
+
+
+@pytest.mark.parametrize("content", [TOKEN + "12:34", "tok@en", "tokenè"])
+def test_login_rejects_token_with_foreign_characters(
+    memory_keyring: MemoryKeyring, content: str
+) -> None:
+    result = runner.invoke(app, [*LOGIN, "--token-stdin"], input=content)
+    assert result.exit_code == 3
+    assert "Copy only the token" in result.stderr
+    assert content not in result.output  # never echo the (bad) token back
+    assert memory_keyring.store == {}
+    assert not default_config_path().exists()
+
+
+def test_login_accepts_base64_style_tokens(memory_keyring: MemoryKeyring) -> None:
+    token = "ATATT3xFf-_GF0+abc/def.ghi=0A1B2C3D"
+    assert runner.invoke(app, [*LOGIN, "--token-stdin"], input=token).exit_code == 0
+
+
+def test_scoped_login_warns_when_the_token_is_classic(
+    memory_keyring: MemoryKeyring, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(auth_commands, "token_works_on_site", lambda site, email, token: True)
+    args = [*LOGIN, "--mode", "scoped", "--cloud-id", CLOUD_ID, "--token-stdin"]
+    result = runner.invoke(app, args, input=TOKEN)
+    assert result.exit_code == 0, result.output  # saved anyway: it is a warning
+    assert "it is a classic (unscoped) API token" in result.stderr
+    assert TOKEN not in result.output
+
+
+def test_scoped_login_with_scoped_token_has_no_warning(
+    memory_keyring: MemoryKeyring, _scoped_token_probe: list[str]
+) -> None:
+    args = [*LOGIN, "--mode", "scoped", "--cloud-id", CLOUD_ID, "--token-stdin"]
+    result = runner.invoke(app, args, input=TOKEN)
+    assert result.exit_code == 0, result.output
+    assert _scoped_token_probe == ["example.atlassian.net"]
+    assert "Warning" not in result.stderr
+
+
+def test_classic_login_does_not_probe(
+    memory_keyring: MemoryKeyring, _scoped_token_probe: list[str]
+) -> None:
+    assert runner.invoke(app, [*LOGIN, "--token-stdin"], input=TOKEN).exit_code == 0
+    assert _scoped_token_probe == []
+
+
+def test_scope_mismatch_401_says_which_scope_is_missing(
+    logged_in: MemoryKeyring, mock_jira
+) -> None:  # type: ignore[no-untyped-def]
+    body = {"code": 401, "message": "Unauthorized; scope does not match"}
+    mock_jira(httpx.Response(401, json=body))
+    result = runner.invoke(app, ["auth", "status", "--check"])
+    assert result.exit_code == 4
+    assert "scope does not match" in result.stderr
+    assert "write:jira-work" in result.stderr
+    assert "expired or revoked" not in result.stderr

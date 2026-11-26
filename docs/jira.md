@@ -113,12 +113,23 @@ lists for the same endpoint):
 | `issue transition` | `write:jira-work` | `write:issue:jira`, `write:issue.property:jira` |
 | `issue assign` | `write:jira-work` | `write:issue:jira` |
 
-A missing scope shows up as HTTP 401 or 403 (exit 4).
+A missing scope shows up as HTTP 401 with Jira's message "scope does not match"; `atl` then
+says which scope write and read commands need (exit 4).
+
+**Classic or scoped?** Both kinds of token look alike. Tested on a real site: a classic token
+works both on `https://<site>` and through `api.atlassian.com`, so using it with
+`--mode scoped` does **not** limit it; a scoped token is refused on `https://<site>`. That is
+how `atl auth login --mode scoped` recognises a classic token and warns you.
 
 The profile name is `--profile`, else `ATL_PROFILE`, else `default`. The first profile created
 becomes `default_profile`. `--site` may be a bare host or a URL (it is normalised). The token
-is stored first; if that fails nothing is written to the config. Login does **not** call Jira;
-use `atl auth status --check` to verify.
+is stored first; if that fails nothing is written to the config. Logging in again with an
+existing profile name replaces that profile; `atl` says so before asking for the token.
+
+Login checks the token's shape but does not verify it with Jira (use
+`atl auth status --check`). The one exception: with `--mode scoped` it makes one request to
+`https://<site>/rest/api/3/myself`, and if the token works there it warns that the token is
+a classic one (not limited by scopes). The profile is saved either way.
 
 #### Token from a file (works in any terminal)
 
@@ -138,7 +149,9 @@ Pasting into an editor always works, so the toolkit can import the token from a 
 
 The token is stored in the keyring and **the file is deleted**. If storing fails (e.g. no
 keyring) the file is kept and nothing is saved. A leading BOM and trailing newline (as some
-Windows editors write) are ignored; a token containing spaces or line breaks is rejected.
+Windows editors write) are ignored. A token containing spaces, line breaks or characters API
+tokens do not have (such as `:`) is rejected: copying a whole chat message, for example, can
+glue its time (`12:34`) to the end of the token.
 
 Close the editor tab without saving again, so the editor does not recreate the file. Atlassian
 shows a token only once: if you no longer have it, revoke it and create a new one.
@@ -403,7 +416,9 @@ issues is not supported.
 4. **No duplicate writes.** A comment or transition (POST) is never retried after a network
    error or a 5xx answer, because Jira may already have applied it: the error tells you to
    check in Jira. Only "429 Too Many Requests" with `Retry-After` is retried (not processed).
-5. **Token scopes.** A read-only scoped token cannot write at all: Jira refuses (exit 4).
+5. **Token scopes.** A read-only scoped token cannot write at all: Jira refuses with
+   "scope does not match" (exit 4); verified on a real site for comment, transition and
+   assign.
    For writes use a token with `write:jira-work` (e.g. in a separate profile). Jira project
    permissions apply as in the web UI.
 6. **Coding agents.** The `atl-jira` Claude Code skill pre-approves read commands only, so
@@ -482,7 +497,8 @@ Creating or editing issues, sprints/boards, issue history, attachments.
   a 429, never after a network error or 5xx (they may already be applied). See
   <https://developer.atlassian.com/cloud/jira/platform/rate-limiting/>.
 - TLS verification is always on.
-- 401 → "token may be expired or revoked" (exit 4); 403 → permission/scope problem (exit 4);
+- 401 → "token may be expired or revoked" (exit 4), or, when Jira says "scope does not
+  match", which scope is missing (exit 4); 403 → permission/scope problem (exit 4);
   404 → exit 5; other failures → exit 6. Jira's own error messages are appended (truncated).
 
 ## 6. Troubleshooting
@@ -493,7 +509,10 @@ Creating or editing issues, sprints/boards, issue history, attachments.
 | `No usable OS keyring` (exit 3) | Headless machine: export `ATL_JIRA_API_TOKEN` instead |
 | Cannot paste the token into the hidden prompt | Use `--token-file` (see "Token from a file" under `atl auth login`) |
 | HTTP 401 (exit 4) | Token expired/revoked, or email does not belong to the token; create a new token and log in again |
-| HTTP 401 with a scoped token | Wrong `cloud_id`, the token lacks a scope (see "Scopes needed per command"), or it is a classic token used with `--mode scoped` |
+| HTTP 401, "scope does not match" | The scoped token lacks a scope this command needs (see "Scopes needed per command"); writes need `write:jira-work` |
+| HTTP 401 with a scoped token, no scope message | Wrong `cloud_id`, or the token was copied with extra characters: log in again |
+| Login warns "it is a classic (unscoped) API token" | You chose `--mode scoped` with a classic token: it is not limited. Create one with **Create API token with scopes** |
+| `characters an API token does not have` at login | Copy only the token (chat apps add the message time when you copy a whole message) |
 | `Could not find the Cloud ID` at login | Network/proxy blocks the lookup: pass `--cloud-id` (see the Cloud ID link in section 1) |
 | HTTP 403 (exit 4) | The account/token lacks permission for that resource |
 | `Not confirmed: nothing was sent` (exit 2) | Not on a terminal: add `--yes` after checking the preview |

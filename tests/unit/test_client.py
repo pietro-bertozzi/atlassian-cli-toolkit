@@ -5,7 +5,12 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from atlassian_toolkit.core.client import JiraClient, base_url_for, discover_cloud_id
+from atlassian_toolkit.core.client import (
+    JiraClient,
+    base_url_for,
+    discover_cloud_id,
+    token_works_on_site,
+)
 from atlassian_toolkit.core.config import JiraProfile
 from atlassian_toolkit.core.errors import ApiError, AuthError, ConfigError, NotFoundError
 
@@ -262,3 +267,43 @@ def test_discover_cloud_id_network_error() -> None:
     handler, _ = sequence(httpx.ConnectError("boom"))
     with pytest.raises(ConfigError, match="retrieve-my-atlassian-sites-cloud-id"):
         discover_cloud_id("example.atlassian.net", transport=httpx.MockTransport(handler))
+
+
+# --- classic-token probe ---------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("response", "expected"),
+    [
+        (httpx.Response(200, json={}), True),
+        (httpx.Response(401), False),
+        (httpx.Response(403), False),
+        (httpx.Response(500), None),
+    ],
+)
+def test_token_works_on_site(response: httpx.Response, expected: bool | None) -> None:
+    handler, seen = sequence(response)
+    transport = httpx.MockTransport(handler)
+    result = token_works_on_site(
+        "example.atlassian.net", "alice@example.com", TOKEN, transport=transport
+    )
+    assert result is expected
+    assert str(seen[0].url) == "https://example.atlassian.net/rest/api/3/myself"
+    assert base64.b64decode(seen[0].headers["Authorization"].split()[1]) == (
+        f"alice@example.com:{TOKEN}".encode()
+    )
+
+
+def test_token_works_on_site_network_error_is_unknown() -> None:
+    handler, _ = sequence(httpx.ConnectError("boom"))
+    transport = httpx.MockTransport(handler)
+    assert (
+        token_works_on_site("example.atlassian.net", "a@example.com", TOKEN, transport=transport)
+        is None
+    )
+
+
+def test_generic_401_keeps_the_expired_or_revoked_message() -> None:
+    handler, _ = sequence(httpx.Response(401, json={"code": 401, "message": "Unauthorized"}))
+    with make_client(handler) as client, pytest.raises(AuthError, match="expired or revoked"):
+        client.get("/rest/api/3/myself")

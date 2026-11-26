@@ -18,6 +18,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 - `atl auth login --mode scoped` finds the site's Cloud ID automatically (documented
   `/_edge/tenant_info` endpoint); `--cloud-id` is now optional. Docs list the scopes each
   command needs and recommend a read-only scoped token for everyday and agent use.
+- `atl auth login` safety nets: it says when it is about to replace an existing profile;
+  rejects tokens containing characters API tokens do not have (e.g. a chat message's `12:34`
+  copied with the token); and with `--mode scoped` warns when the token is actually a classic
+  one, which scopes do not limit.
+- A write refused because the token lacks a scope now says which scope is missing (Jira's
+  "scope does not match"), not "token may be expired or revoked".
 
 ### Changed
 

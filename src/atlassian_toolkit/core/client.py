@@ -160,6 +160,14 @@ class JiraClient:
     @staticmethod
     def _handle(response: httpx.Response) -> Any:
         status = response.status_code
+        if status == 401 and "scope does not match" in response.text.casefold():
+            # Scoped tokens: Atlassian answers a missing scope with 401, not 403.
+            raise AuthError(
+                "Access denied (HTTP 401, scope does not match): this API token does not have "
+                "the scope this command needs. Write commands need 'write:jira-work'; reads need "
+                "'read:jira-work' (and 'read:jira-user' for users). Create a token with the "
+                "needed scopes and run 'atl auth login'."
+            )
         if status == 401:
             raise AuthError(
                 "Authentication failed (HTTP 401): the API token may be expired or revoked, "
@@ -219,6 +227,34 @@ def _detail(response: httpx.Response) -> str:
     if len(text) > MAX_ERROR_DETAIL:
         text = text[:MAX_ERROR_DETAIL] + "..."
     return f" Jira says: {text}"
+
+
+def token_works_on_site(
+    site: str, email: str, token: str, *, transport: httpx.BaseTransport | None = None
+) -> bool | None:
+    """Whether ``token`` authenticates directly on ``https://<site>`` (``GET /myself``).
+
+    Observed behaviour (not stated in Atlassian's docs): classic tokens work both on the site
+    URL and through api.atlassian.com, while scoped tokens are rejected on the site URL. So
+    True means the token is a classic, unscoped one. Returns None when the check could not be
+    made (network error or an unexpected status). Headers are never logged.
+    """
+    try:
+        with httpx.Client(
+            timeout=DEFAULT_TIMEOUT,
+            transport=transport,
+            auth=httpx.BasicAuth(email, token),
+            headers={"Accept": "application/json", "User-Agent": f"atl/{__version__}"},
+        ) as http:
+            response = http.get(f"https://{site}/rest/api/3/myself")
+    except httpx.TransportError:
+        return None
+    logger.debug("GET https://%s/rest/api/3/myself -> %s", site, response.status_code)
+    if response.status_code == 200:
+        return True
+    if response.status_code in (401, 403):
+        return False
+    return None
 
 
 CLOUD_ID_HELP = "https://support.atlassian.com/jira/kb/retrieve-my-atlassian-sites-cloud-id/"

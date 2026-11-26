@@ -6,13 +6,14 @@ then stored in the OS keyring. The config file never holds it.
 """
 
 import os
+import re
 import sys
 from pathlib import Path
 from typing import Annotated
 
 import typer
 
-from atlassian_toolkit.core.client import discover_cloud_id
+from atlassian_toolkit.core.client import discover_cloud_id, token_works_on_site
 from atlassian_toolkit.core.config import (
     PROFILE_ENV_VAR,
     AuthMode,
@@ -37,6 +38,10 @@ from atlassian_toolkit.jira import service as jira_service
 from atlassian_toolkit.jira.connect import open_client, selected_profile
 
 DEFAULT_PROFILE_NAME = "default"
+# Atlassian does not document the token alphabet. Tokens seen so far use base64url characters
+# plus '='; anything outside base64/base64url is copy-paste debris (e.g. a chat app's "12:34"
+# timestamp glued to the end) and would only fail later with a confusing 401.
+_TOKEN_CHARS = re.compile(r"[A-Za-z0-9_\-=+/.]+")
 
 app = typer.Typer(help="Manage profiles and API tokens.", no_args_is_help=True)
 
@@ -83,6 +88,11 @@ def login(
         echo_err(f"Found the Cloud ID of {normalize_site(site)}: {cloud_id}")
 
     name = options.profile or os.environ.get(PROFILE_ENV_VAR) or DEFAULT_PROFILE_NAME
+    if name in load_config().jira:
+        echo_err(
+            f"Note: profile {name!r} already exists; it will be replaced (site, email, mode "
+            "and token). Use --profile/-p NAME to create a different one."
+        )
     profile = JiraProfile(
         site=normalize_site(site),
         email=email.strip(),
@@ -104,6 +114,12 @@ def login(
             "The API token contains spaces or line breaks; it must be the token only. "
             "Nothing was saved."
         )
+    if not _TOKEN_CHARS.fullmatch(token):
+        raise ConfigError(
+            "The API token contains characters an API token does not have (e.g. ':'). Copy "
+            "only the token: copying a whole chat message can add its time, like '12:34'. "
+            "Nothing was saved."
+        )
 
     save_jira_token(name, token)  # fails before touching the config if no keyring
     config = load_config()
@@ -111,6 +127,13 @@ def login(
     config.default_profile = config.default_profile or name
     path = save_config(config)
     echo_err(f"Profile {name!r} saved to {path}. Token stored in the OS keyring.")
+    if mode is AuthMode.SCOPED and token_works_on_site(profile.site, profile.email, token):
+        echo_err(
+            f"Warning: this token also works directly on https://{profile.site}, so it is a "
+            "classic (unscoped) API token: it can do everything your account can, and "
+            "--mode scoped does not limit it. For a read-only profile, create one with "
+            "'Create API token with scopes' and log in again."
+        )
     if token_file is not None:
         _delete_token_file(token_file)
 

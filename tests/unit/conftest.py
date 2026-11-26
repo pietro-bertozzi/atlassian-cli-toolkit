@@ -10,6 +10,7 @@ import pytest
 from helpers import LOGIN, TOKEN, MemoryKeyring, route_jira, runner
 from keyring.backends.fail import Keyring as FailKeyring
 
+from atlassian_toolkit import auth_commands
 from atlassian_toolkit.cli import app
 
 
@@ -74,3 +75,19 @@ def mock_jira(monkeypatch: pytest.MonkeyPatch) -> Callable[[httpx.Response], lis
         return seen
 
     return install
+
+
+@pytest.fixture(autouse=True)
+def _scoped_token_probe(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Default for the post-login check in scoped mode: the token is scoped (no warning).
+
+    Returns the sites probed; tests that need another answer patch the function again.
+    """
+    probed: list[str] = []
+
+    def probe(site: str, email: str, token: str) -> bool:
+        probed.append(site)
+        return False
+
+    monkeypatch.setattr(auth_commands, "token_works_on_site", probe)
+    return probed

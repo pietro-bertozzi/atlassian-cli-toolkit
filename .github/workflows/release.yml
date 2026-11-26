@@ -1,0 +1,42 @@
+# Publish a GitHub release when a version tag (e.g. v0.1.0) is pushed. See docs/releasing.md.
+# The release gets the wheel and sdist built from the tagged commit and the matching
+# CHANGELOG.md section as notes. Nothing is published to PyPI.
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write # needed to create the release
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          python-version: "3.13"
+      - name: Install dependencies (exactly as locked)
+        run: uv sync --locked
+      - name: Lint and unit tests
+        run: |
+          uv run ruff format --check
+          uv run ruff check
+          uv run pytest
+      - name: Check the tag matches the package version
+        run: |
+          version=$(uv run python -c "import atlassian_toolkit; print(atlassian_toolkit.__version__)")
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "Tag $GITHUB_REF_NAME does not match package version $version" >&2
+            exit 1
+          fi
+      - name: Build wheel and sdist
+        run: uv build
+      - name: Release notes from CHANGELOG.md
+        run: uv run python scripts/release_notes.py "${GITHUB_REF_NAME#v}" > notes.md
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --title "$GITHUB_REF_NAME" --notes-file notes.md --verify-tag

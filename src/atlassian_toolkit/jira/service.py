@@ -5,7 +5,9 @@ from __future__ import annotations
 from collections.abc import Sequence
 
 from atlassian_toolkit.core.client import JiraClient
+from atlassian_toolkit.core.errors import UsageError
 from atlassian_toolkit.jira import api
+from atlassian_toolkit.jira.adf_write import markdown_to_adf
 from atlassian_toolkit.jira.models import (
     Comment,
     CurrentUser,
@@ -13,6 +15,8 @@ from atlassian_toolkit.jira.models import (
     Issue,
     IssueSummary,
     Project,
+    Transition,
+    UserRef,
 )
 
 # Fields requested for `atl jira issue get`. Asking only for these keeps the response small and
@@ -98,3 +102,73 @@ def find_fields(client: JiraClient, search: str | None, custom_only: bool) -> li
     if search:
         fields = [f for f in fields if f.matches(search)]
     return sorted(fields, key=lambda f: (f.name.casefold(), f.id))
+
+
+# --- writes -----------------------------------------------------------------------------------
+
+
+def comment_request(markdown: str) -> dict[str, object]:
+    """The JSON body sent to add a comment written in Markdown."""
+    return {"body": markdown_to_adf(markdown)}
+
+
+def add_comment(client: JiraClient, issue_id_or_key: str, markdown: str) -> Comment:
+    """Add a comment written in Markdown (converted to ADF) and return it."""
+    return Comment.from_api(api.add_comment(client, issue_id_or_key, markdown_to_adf(markdown)))
+
+
+def list_transitions(client: JiraClient, issue_id_or_key: str) -> list[Transition]:
+    """Return the transitions available on the issue right now."""
+    return [Transition.from_api(item) for item in api.get_transitions(client, issue_id_or_key)]
+
+
+def choose_transition(transitions: Sequence[Transition], target: str) -> Transition:
+    """Pick the transition named ``target`` or leading to the status ``target`` (any case).
+
+    A transition name wins over a status name. Raises UsageError when nothing or more than one
+    transition matches, listing what is available.
+    """
+    wanted = target.strip().casefold()
+    by_name = [t for t in transitions if t.name.casefold() == wanted]
+    matches = by_name or [t for t in transitions if (t.to_status or "").casefold() == wanted]
+    if len(matches) == 1:
+        return matches[0]
+    options = "; ".join(f"{t.name!r} -> {t.to_status}" for t in transitions) or "none"
+    if not matches:
+        raise UsageError(f"No transition named or leading to {target!r}. Available: {options}.")
+    raise UsageError(f"{target!r} matches several transitions; use one of: {options}.")
+
+
+def transition_issue(client: JiraClient, issue_id_or_key: str, transition_id: str) -> None:
+    """Perform the transition with id ``transition_id`` (from :func:`choose_transition`)."""
+    api.transition_issue(client, issue_id_or_key, transition_id)
+
+
+def find_assignee(client: JiraClient, issue_id_or_key: str, who: str) -> UserRef:
+    """Resolve ``who`` to one assignable user: ``me``, or a name/email to search.
+
+    Exactly one candidate is required: an exact (case-insensitive) display name or email match
+    among the results wins; otherwise a single result. Raises UsageError otherwise.
+    """
+    if who.strip().casefold() == "me":
+        return UserRef.from_api(api.get_myself(client))
+    users = [
+        UserRef.from_api(item) for item in api.find_assignable_users(client, issue_id_or_key, who)
+    ]
+    users = [u for u in users if u.active and u.account_id]
+    wanted = who.strip().casefold()
+    exact = [u for u in users if wanted in {u.display_name.casefold(), (u.email or "").casefold()}]
+    candidates = exact or users
+    if len(candidates) == 1:
+        return candidates[0]
+    if not candidates:
+        raise UsageError(f"No assignable user matches {who!r} for this issue.")
+    names = "; ".join(f"{u.display_name} ({u.account_id})" for u in candidates[:10])
+    raise UsageError(
+        f"{who!r} matches several users: {names}. Use a more specific name or --account-id."
+    )
+
+
+def assign_issue(client: JiraClient, issue_id_or_key: str, account_id: str | None) -> None:
+    """Assign the issue to ``account_id`` (None = unassign)."""
+    api.assign_issue(client, issue_id_or_key, account_id)

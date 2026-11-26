@@ -342,6 +342,26 @@ class Transition:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class UserRef:
+    """A Jira user as needed to assign issues (email may be hidden by privacy settings)."""
+
+    account_id: str
+    display_name: str
+    email: str | None
+    active: bool
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> UserRef:
+        """Build from a ``User`` object."""
+        return cls(
+            account_id=_str(data.get("accountId")) or "",
+            display_name=_str(data.get("displayName")) or "",
+            email=_str(data.get("emailAddress")),
+            active=data.get("active") is True,
+        )
+
+
 # Keys that only carry links/images and are noise in an object reduced to a dict.
 _NOISE_KEYS = frozenset({"self", "avatarUrls", "iconUrl"})
 # Keys whose string value best describes a Jira object, in order of preference:

@@ -166,3 +166,71 @@ def get_fields(client: JiraClient) -> list[dict[str, Any]]:
     if not isinstance(data, list):
         raise ApiError(f"Unexpected response from {path} (expected a JSON list).")
     return [item for item in data if isinstance(item, dict)]
+
+
+# --- write endpoints --------------------------------------------------------------------------
+# Each needs a token allowed to write (classic token: the user's own permissions; scoped token:
+# the ``write:jira-work`` scope) and the Jira project permission named in its docstring.
+
+
+def add_comment(
+    client: JiraClient, issue_id_or_key: str, body_adf: dict[str, Any]
+) -> dict[str, Any]:
+    """``POST /rest/api/3/issue/{issueIdOrKey}/comment`` — add a comment (``body`` in ADF).
+
+    Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-comments/#api-rest-api-3-issue-issueidorkey-comment-post
+    Permission: *Add comments*. Returns the created ``Comment``.
+    """
+    path = f"/rest/api/3/issue/{quote(issue_id_or_key, safe='')}/comment"
+    return _expect_object(client.post(path, {"body": body_adf}), path)
+
+
+def get_transitions(client: JiraClient, issue_id_or_key: str) -> list[dict[str, Any]]:
+    """``GET /rest/api/3/issue/{issueIdOrKey}/transitions`` — moves available right now.
+
+    Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-transitions-get
+    Read-only (``read:jira-work``). Without *Transition issues* the list is empty.
+    """
+    path = f"/rest/api/3/issue/{quote(issue_id_or_key, safe='')}/transitions"
+    data = _expect_object(client.get(path), path)
+    transitions = data.get("transitions")
+    if not isinstance(transitions, list):
+        raise ApiError(f"Unexpected response from {path} (no 'transitions' list).")
+    return [item for item in transitions if isinstance(item, dict)]
+
+
+def transition_issue(client: JiraClient, issue_id_or_key: str, transition_id: str) -> None:
+    """``POST /rest/api/3/issue/{issueIdOrKey}/transitions`` — perform a transition (204).
+
+    Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-transitions-post
+    Permission: *Transition issues*. Screen fields are not sent: a transition whose screen
+    requires fields is rejected by Jira with HTTP 400.
+    """
+    path = f"/rest/api/3/issue/{quote(issue_id_or_key, safe='')}/transitions"
+    client.post(path, {"transition": {"id": transition_id}})
+
+
+def assign_issue(client: JiraClient, issue_id_or_key: str, account_id: str | None) -> None:
+    """``PUT /rest/api/3/issue/{issueIdOrKey}/assignee`` — assign (None = unassign) (204).
+
+    Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issues/#api-rest-api-3-issue-issueidorkey-assignee-put
+    Permission: *Assign issues*.
+    """
+    path = f"/rest/api/3/issue/{quote(issue_id_or_key, safe='')}/assignee"
+    client.put(path, {"accountId": account_id})
+
+
+def find_assignable_users(
+    client: JiraClient, issue_id_or_key: str, query: str, limit: int = 20
+) -> list[dict[str, Any]]:
+    """``GET /rest/api/3/user/assignable/search`` — users who can be assigned to the issue.
+
+    Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-user-search/#api-rest-api-3-user-assignable-search-get
+    Scope: ``read:jira-user``. ``query`` matches display name or email (prefix match).
+    """
+    path = "/rest/api/3/user/assignable/search"
+    params = {"issueKey": issue_id_or_key, "query": query, "maxResults": limit}
+    data = client.get(path, params=params)
+    if not isinstance(data, list):
+        raise ApiError(f"Unexpected response from {path} (expected a JSON list).")
+    return [item for item in data if isinstance(item, dict)]

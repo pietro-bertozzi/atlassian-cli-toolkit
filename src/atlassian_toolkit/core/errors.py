@@ -35,3 +35,9 @@ class ApiError(AtlError):
     """Unexpected API response or network failure."""
 
     exit_code = 6
+
+
+class UsageError(AtlError):
+    """The command cannot run as given (ambiguous target, missing confirmation...)."""
+
+    exit_code = 2

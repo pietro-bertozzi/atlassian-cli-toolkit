@@ -192,6 +192,43 @@ def test_token_never_appears_in_logs_or_errors(caplog: pytest.LogCaptureFixture)
     assert caplog.text  # something was logged
 
 
+# --- writes: retry policy --------------------------------------------------------------------
+
+
+def test_post_sends_json_and_is_not_retried_on_503() -> None:
+    handler, seen = sequence(httpx.Response(503), httpx.Response(201, json={"id": "1"}))
+    with make_client(handler) as client, pytest.raises(ApiError, match="may or may not"):
+        client.post("/rest/api/3/issue/DEMO-1/comment", {"body": {"type": "doc"}})
+    assert len(seen) == 1
+    assert seen[0].method == "POST"
+    assert seen[0].read() == b'{"body":{"type":"doc"}}'
+
+
+def test_post_is_not_retried_on_network_error() -> None:
+    handler, seen = sequence(httpx.ConnectError("boom"), httpx.Response(201, json={}))
+    with make_client(handler) as client, pytest.raises(ApiError, match="check in Jira"):
+        client.post("/rest/api/3/issue/DEMO-1/comment", {})
+    assert len(seen) == 1
+
+
+def test_post_is_retried_on_429_with_retry_after() -> None:
+    sleeps: list[float] = []
+    handler, seen = sequence(
+        httpx.Response(429, headers={"Retry-After": "1"}), httpx.Response(201, json={"id": "9"})
+    )
+    with make_client(handler, sleeps=sleeps) as client:
+        assert client.post("/x", {}) == {"id": "9"}
+    assert len(seen) == 2
+
+
+def test_put_is_retried_on_503_and_204_returns_none() -> None:
+    handler, seen = sequence(httpx.Response(503), httpx.Response(204))
+    with make_client(handler) as client:
+        assert client.put("/rest/api/3/issue/DEMO-1/assignee", {"accountId": None}) is None
+    assert [r.method for r in seen] == ["PUT", "PUT"]
+    assert seen[1].read() == b'{"accountId":null}'
+
+
 # --- cloud id discovery ----------------------------------------------------------------------
 
 CLOUD_ID = "11111111-2222-3333-4444-555555555555"

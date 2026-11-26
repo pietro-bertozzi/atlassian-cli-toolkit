@@ -3,11 +3,16 @@
 Responsibilities: base URL per auth mode, Basic auth, timeouts, retries, error mapping.
 Nothing outside this module needs to know whether the profile is ``classic`` or ``scoped``.
 
-Retry policy (all requests are idempotent GETs), following Atlassian's rate-limiting guidance
+Retry policy, following Atlassian's rate-limiting guidance
 (https://developer.atlassian.com/cloud/jira/platform/rate-limiting/):
 
-* 429 is retried only when the response carries ``Retry-After``.
-* 502 / 503 / 504 and network errors are retried with exponential backoff.
+* 429 is retried only when the response carries ``Retry-After`` (the request was not
+  processed, so this is safe for every method).
+* Idempotent requests (GET, PUT): 502 / 503 / 504 and network errors are also retried with
+  exponential backoff.
+* Non-idempotent requests (POST: add a comment, transition an issue) are never retried on
+  network errors or 5xx, because Jira may already have applied them: retrying could post the
+  same comment twice. The error says so, so the user can check before trying again.
 * Delay = max(Retry-After, base * 2**attempt) with 0.7-1.3x jitter, capped.
 
 Logging never includes headers, so the ``Authorization`` header cannot leak.
@@ -89,12 +94,40 @@ class JiraClient:
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         """GET ``path`` (e.g. ``/rest/api/3/myself``) and return the decoded JSON body."""
+        return self._request("GET", path, params=params, idempotent=True)
+
+    def post(self, path: str, body: Any) -> Any:
+        """POST a JSON ``body``. Not idempotent: never retried on network errors or 5xx.
+
+        Returns the decoded JSON body, or None for an empty response (e.g. 204).
+        """
+        return self._request("POST", path, body=body, idempotent=False)
+
+    def put(self, path: str, body: Any) -> Any:
+        """PUT a JSON ``body`` (idempotent: same retry policy as GET)."""
+        return self._request("PUT", path, body=body, idempotent=True)
+
+    def _request(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: dict[str, Any] | None = None,
+        body: Any = None,
+        idempotent: bool,
+    ) -> Any:
         url = f"{self._base_url}{path}"
+        json_body = {} if body is None else {"json": body}
         for attempt in range(self._max_retries + 1):
             last_attempt = attempt == self._max_retries
             try:
-                response = self._http.get(url, params=params)
+                response = self._http.request(method, url, params=params, **json_body)
             except httpx.TransportError as exc:
+                if not idempotent:
+                    raise ApiError(
+                        f"Network error calling Jira ({type(exc).__name__}). The change may or "
+                        "may not have been applied: check in Jira before trying again."
+                    ) from exc
                 if last_attempt:
                     raise ApiError(
                         f"Network error calling Jira ({type(exc).__name__}). "
@@ -103,11 +136,18 @@ class JiraClient:
                 self._backoff(attempt, None, f"network error {type(exc).__name__}")
                 continue
 
-            logger.debug("GET %s -> %s", url, response.status_code)
+            # Never log bodies or headers: they may hold content or credentials.
+            logger.debug("%s %s -> %s", method, url, response.status_code)
+            status = response.status_code
             retry_after = _parse_retry_after(response)
-            if not last_attempt and _should_retry(response.status_code, retry_after):
-                self._backoff(attempt, retry_after, f"HTTP {response.status_code}")
+            if not last_attempt and _should_retry(status, retry_after, idempotent):
+                self._backoff(attempt, retry_after, f"HTTP {status}")
                 continue
+            if not idempotent and status in RETRYABLE_SERVER_ERRORS:
+                raise ApiError(
+                    f"Jira returned HTTP {status}. The change may or may not have been applied: "
+                    f"check in Jira before trying again.{_detail(response)}"
+                )
             return self._handle(response)
         raise AssertionError("unreachable")  # pragma: no cover
 
@@ -136,16 +176,18 @@ class JiraClient:
             raise ApiError("Rate limited by Jira (HTTP 429). Try again later.")
         if status >= 400:
             raise ApiError(f"Jira returned HTTP {status}.{_detail(response)}")
+        if not response.content:
+            return None  # e.g. 204 No Content after a transition or an assignment
         try:
             return response.json()
         except ValueError as exc:
             raise ApiError("Jira returned a response that is not valid JSON.") from exc
 
 
-def _should_retry(status: int, retry_after: float | None) -> bool:
+def _should_retry(status: int, retry_after: float | None, idempotent: bool) -> bool:
     if status == 429:
         return retry_after is not None and retry_after <= MAX_WAIT
-    return status in RETRYABLE_SERVER_ERRORS
+    return idempotent and status in RETRYABLE_SERVER_ERRORS
 
 
 def _parse_retry_after(response: httpx.Response) -> float | None:

@@ -86,13 +86,13 @@ Atlassian Data Center / Server is out of scope.
 ## 5. Tech stack
 
 - Python >= 3.11, `src/` layout, packaging via `pyproject.toml` (hatchling backend).
-- Runtime deps: `typer` (CLI), `httpx` (HTTP), `keyring` (credentials), `rich` (human output).
-  Any new dependency must be justified and agreed first.
-- Dev deps: `pytest`, `ruff`, `mypy` (strict, on `src/`). HTTP is mocked with `httpx.MockTransport` (no extra mock library
-  unless agreed).
-- Config format: TOML, read with stdlib `tomllib`.
-- Environment and lockfile managed with `uv` (`uv sync`, `uv run pytest`, `uv run ruff check`).
-  The package must still install with plain `pip install .`.
+- Runtime deps: `typer` (CLI), `httpx` (HTTP), `keyring` (credentials), `rich` (human output),
+  `tomli-w` (writing the config file). Any new dependency must be justified and agreed first.
+- Dev deps: `pytest`, `ruff`, `mypy` (strict, on `src/`). HTTP is mocked with
+  `httpx.MockTransport` (no extra mock library unless agreed).
+- Config format: TOML, read with stdlib `tomllib`, written with `tomli-w`.
+- Environment and lockfile managed with `uv` (`uv sync`, `uv run pytest`, `uv run ruff check`,
+  `uv run mypy`). The package must still install with plain `pip install .`.
 
 ## 5b. OS independence
 
@@ -105,34 +105,47 @@ assume a specific OS.
   message pointing to the `ATL_JIRA_API_TOKEN` fallback; never fall back to plaintext files.
 - No shell-specific behaviour, no reliance on POSIX-only modules, UTF-8 output everywhere.
 - Tests must not depend on the host OS (use `tmp_path`, mock keyring).
-- CI (`.github/workflows/ci.yml`) runs format check, lint, type check and unit tests on all three OSes;
-  a change is done only when CI is green everywhere.
+- CI (`.github/workflows/ci.yml`) runs format check, lint, type check and unit tests on all
+  three OSes; a change is done only when CI is green everywhere.
 
 ## 6. Architecture
 
 ```text
 src/atlassian_toolkit/
-├── cli.py            # Typer root app; wires sub-apps; no business logic
-├── auth_commands.py  # `atl auth ...` (login/status/logout); shared across products
-├── setup_commands.py # `atl setup ...` (install the packaged Claude Code skill)
+├── cli.py              # Typer root app; wires sub-apps; no business logic
+├── auth_commands.py    # `atl auth ...` (login/status/logout); one command group for all products
+├── setup_commands.py   # `atl setup ...` (install the packaged Claude Code skill)
 ├── skills/atl-jira/SKILL.md # the Claude Code skill (single source; shipped in the wheel)
 ├── core/
-│   ├── config.py     # profiles, config file location, load/save
-│   ├── context.py    # global CLI options (--profile/--format/--verbose) passed to sub-commands
-│   ├── credentials.py# keyring + env-var fallback; never logs secrets
-│   ├── client.py     # HTTP client: base URL, auth, timeouts, retries, error mapping, pagination helpers
-│   ├── output.py     # json / table / markdown renderers; stdout vs stderr
-│   └── errors.py     # exception hierarchy + exit codes
+│   ├── config.py       # profiles, config file location, load/save
+│   ├── context.py      # global CLI options (--profile/--format/--verbose) passed to sub-commands
+│   ├── credentials.py  # keyring + env-var fallback; never logs secrets
+│   ├── client.py       # HTTP client: base URL, auth, timeouts, retries, error mapping;
+│   │                   #   Cloud ID discovery
+│   ├── output.py       # json / table / markdown renderers; stdout vs stderr
+│   └── errors.py       # exception hierarchy + exit codes
 └── jira/
-    ├── commands.py   # Typer sub-app `atl jira ...`; parses args, calls service, renders
-    ├── service.py    # application logic (e.g. "my issues in active sprint")
-    ├── api.py        # thin wrappers over Jira REST endpoints
-    ├── models.py     # dataclasses for the data we expose
-    └── adf.py        # Atlassian Document Format -> Markdown / plain text
+    ├── commands.py       # Typer sub-app `atl jira ...` (read commands); registers the writes
+    ├── write_commands.py # `atl jira issue comment|transition|assign` + the write safety model
+    ├── connect.py        # selected profile -> token -> client (used by commands and auth)
+    ├── service.py        # application logic (e.g. "my open issues", choosing a transition)
+    ├── api.py            # thin wrappers over Jira REST endpoints, including pagination
+    ├── models.py         # dataclasses for the data we expose
+    ├── adf_read.py       # Atlassian Document Format -> Markdown (what Jira sends us)
+    └── adf_write.py      # Markdown -> Atlassian Document Format (what we send to Jira)
+
+tests/unit/
+├── conftest.py         # fixtures: isolated config/env, no network, memory keyring, logged_in
+├── helpers.py          # plain shared code: MemoryKeyring, TOKEN, LOGIN, runner, route_jira
+└── test_*.py           # one file per module or command group (test_auth_cli, test_jira_cli...)
+
+scripts/release_notes.py # CHANGELOG section -> GitHub release notes (see docs/releasing.md)
+docs/                    # jira.md (features), agents.md (coding agents), releasing.md
 ```
 
 Layering: `commands` → `service` → `api` → `core.client`. Lower layers never import upper ones.
-Commands never build HTTP requests; API wrappers never print.
+Commands never build HTTP requests; API wrappers never print. Command modules (including
+`auth_commands.py`) open clients only through the product's `connect.py`.
 Files are created only when the feature that needs them is implemented.
 
 ## 7. CLI conventions

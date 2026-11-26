@@ -14,6 +14,7 @@ from typer.testing import CliRunner
 from atlassian_toolkit.cli import app
 from atlassian_toolkit.core.client import JiraClient
 from atlassian_toolkit.jira import commands as jira_commands
+from atlassian_toolkit.jira import connect
 
 TOKEN = "fake-token-value"
 LOGIN = ["auth", "login", "--site", "example.atlassian.net", "--email", "alice@example.com"]
@@ -70,7 +71,7 @@ def jira(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     def factory(profile, token):  # type: ignore[no-untyped-def]
         return JiraClient(profile, token, transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr(jira_commands, "JiraClient", factory)
+    monkeypatch.setattr(connect, "JiraClient", factory)
     return seen
 
 

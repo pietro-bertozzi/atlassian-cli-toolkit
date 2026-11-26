@@ -13,7 +13,7 @@ from atlassian_toolkit.cli import app
 from atlassian_toolkit.core.client import JiraClient
 from atlassian_toolkit.core.config import default_config_path
 from atlassian_toolkit.core.errors import ConfigError
-from atlassian_toolkit.jira import commands as jira_commands
+from atlassian_toolkit.jira import connect
 
 TOKEN = "fake-token-value"
 LOGIN = [
@@ -57,8 +57,7 @@ def mock_jira(monkeypatch: pytest.MonkeyPatch) -> Callable[[httpx.Response], lis
         def factory(profile, token):  # type: ignore[no-untyped-def]
             return JiraClient(profile, token, transport=httpx.MockTransport(handler))
 
-        monkeypatch.setattr(jira_commands, "JiraClient", factory)
-        monkeypatch.setattr(auth_commands, "JiraClient", factory)
+        monkeypatch.setattr(connect, "JiraClient", factory)
         return seen
 
     return install
@@ -397,7 +396,7 @@ def paged_jira(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     def factory(profile, token):  # type: ignore[no-untyped-def]
         return JiraClient(profile, token, transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr(jira_commands, "JiraClient", factory)
+    monkeypatch.setattr(connect, "JiraClient", factory)
     return seen
 
 
@@ -499,7 +498,7 @@ def jira_with_comments(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     def factory(profile, token):  # type: ignore[no-untyped-def]
         return JiraClient(profile, token, transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr(jira_commands, "JiraClient", factory)
+    monkeypatch.setattr(connect, "JiraClient", factory)
     return seen
 
 
@@ -611,7 +610,7 @@ def jira_projects(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
     def factory(profile, token):  # type: ignore[no-untyped-def]
         return JiraClient(profile, token, transport=httpx.MockTransport(handler))
 
-    monkeypatch.setattr(jira_commands, "JiraClient", factory)
+    monkeypatch.setattr(connect, "JiraClient", factory)
     return seen
 
 

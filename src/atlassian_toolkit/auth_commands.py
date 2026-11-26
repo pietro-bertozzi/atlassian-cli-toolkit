@@ -12,7 +12,7 @@ from typing import Annotated
 
 import typer
 
-from atlassian_toolkit.core.client import JiraClient, discover_cloud_id
+from atlassian_toolkit.core.client import discover_cloud_id
 from atlassian_toolkit.core.config import (
     PROFILE_ENV_VAR,
     AuthMode,
@@ -28,13 +28,13 @@ from atlassian_toolkit.core.context import GlobalOptions
 from atlassian_toolkit.core.credentials import (
     JIRA_TOKEN_ENV_VAR,
     delete_jira_token,
-    get_jira_token,
     jira_token_source,
     save_jira_token,
 )
 from atlassian_toolkit.core.errors import ConfigError
 from atlassian_toolkit.core.output import echo_err, emit, resolve_format
 from atlassian_toolkit.jira import service as jira_service
+from atlassian_toolkit.jira.connect import open_client, selected_profile
 
 DEFAULT_PROFILE_NAME = "default"
 
@@ -147,9 +147,7 @@ def status(
 ) -> None:
     """Show the selected profile and where its token comes from (never the token)."""
     options: GlobalOptions = ctx.obj
-    config = load_config()
-    name = resolve_profile_name(options.profile, config)
-    profile = get_jira_profile(name, config)
+    name, profile = selected_profile(options.profile)
     record = {
         "profile": name,
         "site": profile.site,
@@ -161,7 +159,7 @@ def status(
     }
     if check:
         # Live check: GET /rest/api/3/myself. Errors keep their exit codes (4 auth, 6 network).
-        with JiraClient(profile, get_jira_token(name)) as client:
+        with open_client(name, profile) as client:
             user = jira_service.get_current_user(client)
         record.update(check="ok", account_id=user.account_id, display_name=user.display_name)
     emit(record, resolve_format(options.format))

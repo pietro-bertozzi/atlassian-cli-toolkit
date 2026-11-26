@@ -10,14 +10,8 @@ from urllib.parse import quote
 import typer
 
 from atlassian_toolkit.core.client import JiraClient
-from atlassian_toolkit.core.config import (
-    JiraProfile,
-    get_jira_profile,
-    load_config,
-    resolve_profile_name,
-)
+from atlassian_toolkit.core.config import JiraProfile
 from atlassian_toolkit.core.context import GlobalOptions
-from atlassian_toolkit.core.credentials import get_jira_token
 from atlassian_toolkit.core.errors import UsageError
 from atlassian_toolkit.core.output import (
     OutputFormat,
@@ -27,6 +21,7 @@ from atlassian_toolkit.core.output import (
     resolve_format,
 )
 from atlassian_toolkit.jira import service
+from atlassian_toolkit.jira.connect import open_client, selected_profile
 from atlassian_toolkit.jira.models import Issue, UserRef
 
 app = typer.Typer(help="Jira Cloud commands.", no_args_is_help=True)
@@ -36,10 +31,8 @@ app.add_typer(issue_app, name="issue")
 
 def _open_client(options: GlobalOptions) -> tuple[JiraClient, JiraProfile]:
     """Build a client for the selected profile (profile -> token -> client)."""
-    config = load_config()
-    name = resolve_profile_name(options.profile, config)
-    profile = get_jira_profile(name, config)
-    return JiraClient(profile, get_jira_token(name)), profile
+    name, profile = selected_profile(options.profile)
+    return open_client(name, profile), profile
 
 
 SEARCH_COLUMNS = ("key", "status", "priority", "issue_type", "summary")

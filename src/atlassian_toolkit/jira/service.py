@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 
 from atlassian_toolkit.core.client import JiraClient
-from atlassian_toolkit.core.errors import UsageError
+from atlassian_toolkit.core.errors import ApiError, UsageError
 from atlassian_toolkit.jira import api
 from atlassian_toolkit.jira.adf_write import markdown_to_adf
 from atlassian_toolkit.jira.models import (
@@ -69,8 +70,28 @@ def search_issues(
 ) -> tuple[list[IssueSummary], bool]:
     """Run a JQL search; return up to ``limit`` issues and whether more were available."""
     fields = _with_extra(SEARCH_FIELDS, extra_fields)
-    raw, more = api.search_issues(client, jql, fields, limit)
+    try:
+        raw, more = api.search_issues(client, jql, fields, limit)
+    except ApiError as exc:
+        if exc.status == 400 and is_unbounded_jql(jql):
+            raise ApiError(f"{exc} {UNBOUNDED_JQL_HINT}", status=400) from exc
+        raise
     return [IssueSummary.from_api(item, site, extra_fields) for item in raw], more
+
+
+# Seen on a real site: /search/jql answers 400 to a JQL with no condition (e.g. only ORDER BY),
+# with a message in the user's Jira language. Jira's message is kept; this adds an English hint.
+UNBOUNDED_JQL_HINT = (
+    "Hint: this JQL has no search condition (it is empty or only has ORDER BY), and Jira "
+    "refuses unbounded searches. Add one, e.g. 'project = DEMO ORDER BY updated DESC' or "
+    "'updated >= -30d ORDER BY updated DESC'."
+)
+_ORDER_BY = re.compile(r"(?is)\border\s+by\b.*$")
+
+
+def is_unbounded_jql(jql: str) -> bool:
+    """True when ``jql`` has no condition: empty, or just an ``ORDER BY`` clause."""
+    return not _ORDER_BY.sub("", jql).strip()
 
 
 def _with_extra(base: Sequence[str], extra: Sequence[str]) -> tuple[str, ...]:

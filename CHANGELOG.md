@@ -24,6 +24,8 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   one, which scopes do not limit.
 - A write refused because the token lacks a scope now says which scope is missing (Jira's
   "scope does not match"), not "token may be expired or revoked".
+- `atl jira search` adds an English hint when Jira refuses a JQL with no condition (only
+  `ORDER BY`), since Jira's own message comes in the account's language.
 
 ### Changed
 

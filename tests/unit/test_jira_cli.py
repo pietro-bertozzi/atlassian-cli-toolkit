@@ -7,6 +7,7 @@ import pytest
 from helpers import LOGIN, TOKEN, MemoryKeyring, route_jira, runner
 
 from atlassian_toolkit.cli import app
+from atlassian_toolkit.jira import service
 
 ISSUE_BODY = {
     "id": "10001",
@@ -506,3 +507,36 @@ def test_issue_get_shows_possible_status_changes(logged_in: MemoryKeyring, mock_
     assert "## Possible status changes\n\n- Send to review -> In Review (has a screen)" in md
     table = runner.invoke(app, ["-f", "table", "jira", "issue", "get", "DEMO-123"]).stdout
     assert "Send to review -> In Review" in table
+
+
+@pytest.mark.parametrize(
+    ("jql", "unbounded"),
+    [
+        ("", True),
+        ("   ", True),
+        ("order by updated DESC", True),
+        ("ORDER  BY created", True),
+        ("project = DEMO ORDER BY updated", False),
+        ("updated >= -30d", False),
+        ('summary ~ "border by"', False),
+    ],
+)
+def test_is_unbounded_jql(jql: str, unbounded: bool) -> None:
+    assert service.is_unbounded_jql(jql) is unbounded
+
+
+def test_unbounded_jql_400_adds_an_english_hint(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    mock_jira(
+        httpx.Response(400, json={"errorMessages": ["Unbounded JQL queries are not allowed"]})
+    )
+    result = runner.invoke(app, ["jira", "search", "order by updated DESC"])
+    assert result.exit_code == 6
+    assert "Unbounded JQL queries are not allowed" in result.stderr  # Jira's message is kept
+    assert "Hint: this JQL has no search condition" in result.stderr
+
+
+def test_bounded_jql_400_has_no_hint(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    mock_jira(httpx.Response(400, json={"errorMessages": ["Error in JQL Query"]}))
+    result = runner.invoke(app, ["jira", "search", "project = = DEMO"])
+    assert result.exit_code == 6
+    assert "Hint" not in result.stderr

@@ -183,7 +183,7 @@ class JiraClient:
         if status == 429:
             raise ApiError("Rate limited by Jira (HTTP 429). Try again later.")
         if status >= 400:
-            raise ApiError(f"Jira returned HTTP {status}.{_detail(response)}")
+            raise ApiError(f"Jira returned HTTP {status}.{_detail(response)}", status=status)
         if not response.content:
             return None  # e.g. 204 No Content after a transition or an assignment
         try:

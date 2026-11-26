@@ -32,9 +32,16 @@ class NotFoundError(AtlError):
 
 
 class ApiError(AtlError):
-    """Unexpected API response or network failure."""
+    """Unexpected API response or network failure.
+
+    ``status`` is the HTTP status when Jira answered (None for network errors).
+    """
 
     exit_code = 6
+
+    def __init__(self, message: str, status: int | None = None) -> None:
+        super().__init__(message)
+        self.status = status
 
 
 class UsageError(AtlError):

@@ -319,6 +319,9 @@ atl -f json jira search "project = DEMO AND updated >= -7d ORDER BY updated DESC
 
 **Limitations**: search results may lag a few seconds behind recent edits (Jira's search
 index); the `reconcileIssues` option for read-after-write consistency is not exposed.
+A JQL with no condition (empty, or only `ORDER BY ...`) is refused by Jira with HTTP 400
+(seen on a real site, with the message in the account's language); `atl` adds an English hint.
+Add any condition, e.g. `updated >= -30d ORDER BY updated DESC`.
 
 ### `atl jira projects` *(available)*
 
@@ -516,6 +519,8 @@ Creating or editing issues, sprints/boards, issue history, attachments.
 | `Could not find the Cloud ID` at login | Network/proxy blocks the lookup: pass `--cloud-id` (see the Cloud ID link in section 1) |
 | HTTP 403 (exit 4) | The account/token lacks permission for that resource |
 | `Not confirmed: nothing was sent` (exit 2) | Not on a terminal: add `--yes` after checking the preview |
+| `search` fails with HTTP 400 and a hint about "no search condition" | The JQL is only `ORDER BY` (or empty): add a condition such as `project = KEY` |
+| Jira's messages are not in English | Jira answers in the language of your Atlassian account; `atl`'s own messages are English |
 | `transition` fails with HTTP 400 (exit 6) | The transition's screen has required fields: do it in the browser |
 | `may or may not have been applied` (exit 6) | Network error or 5xx during a comment/transition: check the issue in Jira before retrying |
 | `search` gives HTTP 400 (exit 6) | Invalid or unbounded JQL; Jira's message is shown. Add a restriction such as `project = X` |

@@ -4,7 +4,14 @@ from __future__ import annotations
 
 from atlassian_toolkit.core.client import JiraClient
 from atlassian_toolkit.jira import api
-from atlassian_toolkit.jira.models import Comment, CurrentUser, Issue, IssueSummary
+from atlassian_toolkit.jira.models import (
+    Comment,
+    CurrentUser,
+    Field,
+    Issue,
+    IssueSummary,
+    Project,
+)
 
 # Fields requested for `atl jira issue get`. Asking only for these keeps the response small and
 # avoids custom fields, whose ids differ per site.
@@ -58,3 +65,21 @@ def get_comments(
     """Return up to ``limit`` comments (oldest first by default) and whether more exist."""
     raw, more = api.get_comments(client, issue_id_or_key, limit, newest_first)
     return [Comment.from_api(item) for item in raw], more
+
+
+def list_projects(
+    client: JiraClient, site: str, query: str | None, limit: int
+) -> tuple[list[Project], bool]:
+    """Return up to ``limit`` viewable projects (optionally matching ``query``)."""
+    raw, more = api.list_projects(client, query, limit)
+    return [Project.from_api(item, site) for item in raw], more
+
+
+def find_fields(client: JiraClient, search: str | None, custom_only: bool) -> list[Field]:
+    """Return fields matching ``search`` (name, id or JQL name), sorted by name then id."""
+    fields = [Field.from_api(item) for item in api.get_fields(client)]
+    if custom_only:
+        fields = [f for f in fields if f.custom]
+    if search:
+        fields = [f for f in fields if f.matches(search)]
+    return sorted(fields, key=lambda f: (f.name.casefold(), f.id))

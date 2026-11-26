@@ -289,10 +289,65 @@ atl -f json jira search "project = DEMO AND updated >= -7d ORDER BY updated DESC
 **Limitations**: search results may lag a few seconds behind recent edits (Jira's search
 index); the `reconcileIssues` option for read-after-write consistency is not exposed.
 
+### `atl jira projects` *(available)*
+
+Lists the projects you can view, so you (or an agent) know which project keys to use in JQL.
+
+- **Concepts**: a **project** groups issues and has a key (`DEMO`) used as issue-key prefix.
+  `project_type` is `software`, `service_desk`, `business` or `product_discovery`. `style`
+  tells who configures the project: `classic` = **company-managed** (Jira admins, shared
+  workflows and fields) or `next-gen` = **team-managed** (the team itself; its fields belong
+  to that project). The two kinds can use different fields for the same thing, e.g. story
+  points.
+- **Jira web UI**: *Projects* → *View all projects*.
+- **Endpoint**: `GET /rest/api/3/project/search`
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-projects/#api-rest-api-3-project-search-get>),
+  ordered by key, offset pagination (`startAt`, 100 per request) until `isLast`. Jira answers
+  404 when nothing matches `--query`; the CLI shows that as an empty list (exit 0).
+- **Permissions**: *Browse projects* (or project/Jira admin) on each project returned.
+  **Scope**: `read:jira-work`.
+- **Options**: `--query/-q` (key or name contains, case insensitive), `--limit/-n` (default
+  200, max 1000).
+- **JSON output**: list of `{key, id, name, project_type, style, url}`.
+
+```bash
+atl jira projects
+atl -f json jira projects -q demo
+```
+
+### `atl jira fields` *(available)*
+
+Lists issue fields with their ids. Use it to find custom fields such as story points, whose
+id (`customfield_NNNNN`) differs from site to site.
+
+- **Concepts**: every issue value lives in a **field**. System fields have readable ids
+  (`summary`, `labels`); **custom fields** are added per site and have ids like
+  `customfield_10016`. The REST API uses the `id`; JQL uses one of the `clause_names`
+  (e.g. `cf[10016]` or the field name).
+- **Jira web UI**: custom fields are managed by Jira admins in the Jira administration
+  settings, or by the team in the project settings of a team-managed project.
+- **Endpoint**: `GET /rest/api/3/field`
+  (<https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-fields/#api-rest-api-3-field-get>),
+  one request, no paging. Filtering is done by the CLI.
+- **Permissions**: none beyond access to Jira. **Scope**: `read:jira-work`.
+- **Options**: `--search/-s TEXT` (name, id or JQL name contains, case insensitive),
+  `--custom` (custom fields only).
+- **JSON output**: list of `{id, name, custom, type, items, custom_type, clause_names,
+  scope_project_id}`, sorted by name. `type`/`items` are the value type (e.g. `number`,
+  `array` of `string`); `custom_type` identifies the custom field type;
+  `scope_project_id` is set for a field that exists only in one (team-managed) project.
+
+```bash
+atl jira fields --search "story point"
+atl -f json jira fields --custom
+```
+
+**Limitation**: on a site tested so far, a team-managed project's fields did not report a
+`scope`; do not rely on `scope_project_id` alone to tell which project uses a field.
+
 ### Planned
 
-Projects and field discovery (`projects`, `fields`), sprints/boards, story points (custom
-field discovered per site), issue history. Write commands (comment, transition, assign) are a
+Sprints/boards, story points (using the field found with `atl jira fields`), issue history. Write commands (comment, transition, assign) are a
 later, separate phase. *(planned)*
 
 ## 5. HTTP behaviour *(available)*

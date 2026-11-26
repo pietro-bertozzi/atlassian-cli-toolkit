@@ -542,3 +542,120 @@ def test_issue_get_markdown_lists_subtasks_and_links(
     table = runner.invoke(app, ["-f", "table", "jira", "issue", "get", "DEMO-123"])
     assert table.exit_code == 0, table.output
     assert "DEMO-124 [Done] Write the fix" in table.stdout
+
+
+def _project(n: int) -> dict:
+    return {
+        "id": str(10000 + n),
+        "key": f"P{n}",
+        "name": f"Project {n}",
+        "projectTypeKey": "software",
+        "style": "classic" if n % 2 else "next-gen",
+    }
+
+
+@pytest.fixture
+def jira_projects(monkeypatch: pytest.MonkeyPatch) -> list[httpx.Request]:
+    """Serve 5 projects in pages of at most 2; a query matching nothing gets a 404."""
+    seen: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        if request.url.params.get("query") == "nothing":
+            return httpx.Response(404, json={"errorMessages": ["No projects found."]})
+        start = int(request.url.params["startAt"])
+        size = min(2, int(request.url.params["maxResults"]))
+        values = [_project(n) for n in range(1, 6)][start : start + size]
+        body = {"startAt": start, "total": 5, "values": values, "isLast": start + size >= 5}
+        return httpx.Response(200, json=body)
+
+    def factory(profile, token):  # type: ignore[no-untyped-def]
+        return JiraClient(profile, token, transport=httpx.MockTransport(handler))
+
+    monkeypatch.setattr(jira_commands, "JiraClient", factory)
+    return seen
+
+
+def test_projects_pages_until_is_last(logged_in: MemoryKeyring, jira_projects) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "json", "jira", "projects"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert [p["key"] for p in data] == ["P1", "P2", "P3", "P4", "P5"]
+    assert data[0] == {
+        "key": "P1",
+        "id": "10001",
+        "name": "Project 1",
+        "project_type": "software",
+        "style": "classic",
+        "url": "https://example.atlassian.net/browse/P1",
+    }
+    assert [r.url.params["startAt"] for r in jira_projects] == ["0", "2", "4"]
+    assert jira_projects[0].url.path == "/rest/api/3/project/search"
+    assert "query" not in jira_projects[0].url.params
+
+
+def test_projects_query_and_limit(logged_in: MemoryKeyring, jira_projects) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "json", "jira", "projects", "-q", "proj", "-n", "3"])
+    assert result.exit_code == 0, result.output
+    assert len(json.loads(result.stdout)) == 3
+    assert jira_projects[0].url.params["query"] == "proj"
+    assert "first 3 projects; more exist" in result.stderr
+
+
+def test_projects_no_match_is_empty_list_not_404(logged_in: MemoryKeyring, jira_projects) -> None:  # type: ignore[no-untyped-def]
+    result = runner.invoke(app, ["-f", "json", "jira", "projects", "-q", "nothing"])
+    assert result.exit_code == 0, result.output
+    assert json.loads(result.stdout) == []
+
+
+FLOAT_TYPE = "com.atlassian.jira.plugin.system.customfieldtypes:float"
+FIELDS_BODY = [
+    {"id": "summary", "name": "Summary", "custom": False, "clauseNames": ["summary"],
+     "schema": {"type": "string", "system": "summary"}},
+    {"id": "customfield_10016", "name": "Story point estimate", "custom": True,
+     "clauseNames": ["cf[10016]", "Story point estimate"],
+     "schema": {"type": "number", "custom": "com.atlassian.jpo:jpo-custom-field-baseline",
+                "customId": 10016}},
+    {"id": "customfield_10050", "name": "Story Points", "custom": True,
+     "clauseNames": ["cf[10050]", "Story Points"],
+     "schema": {"type": "number", "custom": FLOAT_TYPE},
+     "scope": {"type": "PROJECT", "project": {"id": "10002"}}},
+    {"id": "labels", "name": "Labels", "custom": False, "clauseNames": ["labels"],
+     "schema": {"type": "array", "items": "string", "system": "labels"}},
+    {"id": "broken"},
+]  # fmt: skip
+
+
+def test_fields_search_matches_name_id_and_clause(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    seen = mock_jira(httpx.Response(200, json=FIELDS_BODY))
+    result = runner.invoke(app, ["-f", "json", "jira", "fields", "--search", "STORY POINT"])
+    assert result.exit_code == 0, result.output
+    data = json.loads(result.stdout)
+    assert [f["id"] for f in data] == ["customfield_10016", "customfield_10050"]
+    assert data[1] == {
+        "id": "customfield_10050",
+        "name": "Story Points",
+        "custom": True,
+        "type": "number",
+        "items": None,
+        "custom_type": "com.atlassian.jira.plugin.system.customfieldtypes:float",
+        "clause_names": ["cf[10050]", "Story Points"],
+        "scope_project_id": "10002",
+    }
+    assert seen[0].url.path == "/rest/api/3/field"
+    by_id = runner.invoke(app, ["-f", "json", "jira", "fields", "-s", "10016"])
+    assert [f["id"] for f in json.loads(by_id.stdout)] == ["customfield_10016"]
+
+
+def test_fields_custom_only_and_sorted(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    mock_jira(httpx.Response(200, json=FIELDS_BODY))
+    result = runner.invoke(app, ["-f", "json", "jira", "fields"])
+    names = [f["name"] for f in json.loads(result.stdout)]
+    assert names == ["", "Labels", "Story point estimate", "Story Points", "Summary"]
+    custom = runner.invoke(app, ["-f", "json", "jira", "fields", "--custom"])
+    assert all(f["custom"] for f in json.loads(custom.stdout))
+
+
+def test_fields_unexpected_response_exits_6(logged_in: MemoryKeyring, mock_jira) -> None:  # type: ignore[no-untyped-def]
+    mock_jira(httpx.Response(200, json={"not": "a list"}))
+    assert runner.invoke(app, ["jira", "fields"]).exit_code == 6

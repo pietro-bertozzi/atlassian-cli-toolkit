@@ -215,6 +215,87 @@ class IssueSummary:
         return asdict(self)
 
 
+@dataclass(frozen=True)
+class Project:
+    """A Jira project the user can view.
+
+    ``style`` is ``classic`` (company-managed: configured by Jira admins, shared schemes) or
+    ``next-gen`` (team-managed: configured by the team, fields scoped to the project).
+    """
+
+    key: str
+    id: str
+    name: str
+    project_type: str | None
+    style: str | None
+    url: str
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any], site: str) -> Project:
+        """Build from a ``Project`` object of ``GET /rest/api/3/project/search``."""
+        key = _str(data.get("key")) or ""
+        return cls(
+            key=key,
+            id=_str(data.get("id")) or "",
+            name=_str(data.get("name")) or "",
+            project_type=_str(data.get("projectTypeKey")),
+            style=_str(data.get("style")),
+            url=f"https://{site}/browse/{quote(key, safe='')}",
+        )
+
+    def to_record(self) -> dict[str, Any]:
+        """Return the record rendered by the output layer."""
+        return asdict(self)
+
+
+@dataclass(frozen=True)
+class Field:
+    """A system or custom issue field (``GET /rest/api/3/field``).
+
+    ``id`` is what the REST API uses (e.g. ``summary``, ``customfield_10016``); ``clause_names``
+    are the names usable in JQL. ``type``/``items`` come from the field schema (e.g. ``number``,
+    ``array`` of ``string``); ``custom_type`` identifies the custom field type. A field with
+    ``scope_project_id`` exists only in that (team-managed) project.
+    """
+
+    id: str
+    name: str
+    custom: bool
+    type: str | None
+    items: str | None
+    custom_type: str | None
+    clause_names: list[str]
+    scope_project_id: str | None
+
+    @classmethod
+    def from_api(cls, data: Mapping[str, Any]) -> Field:
+        """Build from a ``FieldDetails`` object."""
+        schema = _mapping(data.get("schema"))
+        clauses = data.get("clauseNames")
+        return cls(
+            id=_str(data.get("id")) or "",
+            name=_str(data.get("name")) or "",
+            custom=data.get("custom") is True,
+            type=_str(schema.get("type")),
+            items=_str(schema.get("items")),
+            custom_type=_str(schema.get("custom")),
+            clause_names=[c for c in clauses if isinstance(c, str)]
+            if isinstance(clauses, list)
+            else [],
+            scope_project_id=_nested(_mapping(data.get("scope")), "project", "id"),
+        )
+
+    def matches(self, text: str) -> bool:
+        """Case-insensitive substring match on name, id or JQL clause names."""
+        needle = text.casefold()
+        haystack = [self.name, self.id, *self.clause_names]
+        return any(needle in value.casefold() for value in haystack)
+
+    def to_record(self) -> dict[str, Any]:
+        """Return the record rendered by the output layer."""
+        return asdict(self)
+
+
 def _mapping(value: Any) -> Mapping[str, Any]:
     return value if isinstance(value, Mapping) else {}
 

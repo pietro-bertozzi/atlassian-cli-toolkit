@@ -47,7 +47,8 @@ atl jira search --help  # arguments and options of one command
 - `atl jira search` (JQL), `atl jira mine` — available
 - `atl jira issue comments`, `atl jira issue context` (all of an issue in one call, for
   agents) — available
-- Projects, fields, sprints, story points, issue history — planned
+- `atl jira projects`, `atl jira fields` (find custom field ids) — available
+- Sprints, story points, issue history — planned
 
 ## Development
 

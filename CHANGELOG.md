@@ -7,6 +7,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `atl jira projects`: projects you can view (key, name, type, company/team-managed), with
+  `--query` and `--limit`.
+- `atl jira fields`: issue fields and their ids, with `--search` and `--custom`, to find
+  custom fields such as story points.
 - `atl jira issue comments <KEY>`: comments as Markdown, with `startAt` pagination,
   `--limit` and `--newest-first`.
 - `atl jira issue context <KEY>`: issue fields, subtasks, links, description and comments in

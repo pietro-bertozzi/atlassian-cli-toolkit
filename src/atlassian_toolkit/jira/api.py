@@ -7,7 +7,7 @@ from typing import Any
 from urllib.parse import quote
 
 from atlassian_toolkit.core.client import JiraClient
-from atlassian_toolkit.core.errors import ApiError
+from atlassian_toolkit.core.errors import ApiError, NotFoundError
 
 
 def get_myself(client: JiraClient) -> dict[str, Any]:
@@ -109,3 +109,54 @@ def get_comments(
         if not batch or (total is not None and start >= total):
             return comments[:limit], False
     return comments[:limit], total is None or start < total
+
+
+PROJECT_PAGE_SIZE = 100
+
+
+def list_projects(
+    client: JiraClient, query: str | None, limit: int
+) -> tuple[list[dict[str, Any]], bool]:
+    """``GET /rest/api/3/project/search`` — projects the user can view, ordered by key.
+
+    Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-projects/#api-rest-api-3-project-search-get
+    Required scope (scoped tokens): ``read:jira-work``. ``query`` matches key or name (case
+    insensitive). Offset pagination (``startAt``, at most 100 per page) until ``isLast``.
+    Jira answers 404 when no project matches; that is returned as an empty list.
+    """
+    path = "/rest/api/3/project/search"
+    projects: list[dict[str, Any]] = []
+    start = 0
+    while len(projects) < limit:
+        params: dict[str, Any] = {
+            "startAt": start,
+            "maxResults": min(PROJECT_PAGE_SIZE, limit - len(projects)),
+            "orderBy": "key",
+        }
+        if query:
+            params["query"] = query
+        try:
+            page = _expect_object(client.get(path, params=params), path)
+        except NotFoundError:
+            return projects, False
+        batch = page.get("values")
+        if not isinstance(batch, list):
+            raise ApiError(f"Unexpected response from {path} (no 'values' list).")
+        projects.extend(item for item in batch if isinstance(item, dict))
+        start += len(batch)
+        if not batch or page.get("isLast") is True:
+            return projects[:limit], False
+    return projects[:limit], True
+
+
+def get_fields(client: JiraClient) -> list[dict[str, Any]]:
+    """``GET /rest/api/3/field`` — all system and custom fields the user can see (no paging).
+
+    Docs: https://developer.atlassian.com/cloud/jira/platform/rest/v3/api-group-issue-fields/#api-rest-api-3-field-get
+    Required scope (scoped tokens): ``read:jira-work``. No permission is required.
+    """
+    path = "/rest/api/3/field"
+    data = client.get(path)
+    if not isinstance(data, list):
+        raise ApiError(f"Unexpected response from {path} (expected a JSON list).")
+    return [item for item in data if isinstance(item, dict)]

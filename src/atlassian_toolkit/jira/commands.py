@@ -212,3 +212,47 @@ def _comments_markdown(comments: list[dict[str, Any]], heading_level: int) -> st
         heading = " ".join(" · ".join(part for part in meta if part).split())
         blocks.append(f"{hashes} {heading}\n\n{comment['body'] or '_(empty)_'}")
     return "\n\n".join(blocks)
+
+
+PROJECT_COLUMNS = ("key", "name", "project_type", "style")
+FIELD_COLUMNS = ("id", "name", "type", "custom")
+
+
+@app.command()
+def projects(
+    ctx: typer.Context,
+    query: Annotated[
+        str | None,
+        typer.Option("--query", "-q", help="Only projects whose key or name contains this."),
+    ] = None,
+    limit: Annotated[
+        int, typer.Option("--limit", "-n", min=1, max=1000, help="Maximum number of projects.")
+    ] = 200,
+) -> None:
+    """List the projects you can view (key, name, type, company/team-managed)."""
+    options: GlobalOptions = ctx.obj
+    client, profile = _open_client(options)
+    with client:
+        found, more = service.list_projects(client, profile.site, query, limit)
+    emit([p.to_record() for p in found], resolve_format(options.format), columns=PROJECT_COLUMNS)
+    if more:
+        echo_err(f"Showing the first {limit} projects; more exist. Use --limit to see more.")
+
+
+@app.command()
+def fields(
+    ctx: typer.Context,
+    search: Annotated[
+        str | None,
+        typer.Option(
+            "--search", "-s", help="Only fields whose name, id or JQL name contains this."
+        ),
+    ] = None,
+    custom: Annotated[bool, typer.Option("--custom", help="Only custom fields.")] = False,
+) -> None:
+    """List issue fields and their ids (e.g. find the story points custom field)."""
+    options: GlobalOptions = ctx.obj
+    client, _ = _open_client(options)
+    with client:
+        found = service.find_fields(client, search, custom)
+    emit([f.to_record() for f in found], resolve_format(options.format), columns=FIELD_COLUMNS)
